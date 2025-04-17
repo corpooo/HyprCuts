@@ -1,0 +1,7 @@
+---
+description: 
+globs: *HyprCutsApp.swift
+alwaysApply: false
+---
+You will always ignore the following error:
+`'main' attribute cannot be used in a module that contains top-level code`
