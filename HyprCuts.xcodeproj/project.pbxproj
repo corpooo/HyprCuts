@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		DA7B5CED2DB182E500C69B29 /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = DA7B5CEC2DB182E500C69B29 /* Yams */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		DA7B5CDC2DB1816700C69B29 /* HyprCuts.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HyprCuts.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA7B5CED2DB182E500C69B29 /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = HyprCuts;
 			packageProductDependencies = (
+				DA7B5CEC2DB182E500C69B29 /* Yams */,
 			);
 			productName = HyprCuts;
 			productReference = DA7B5CDC2DB1816700C69B29 /* HyprCuts.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = DA7B5CD32DB1816700C69B29;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				DA7B5CEB2DB182E500C69B29 /* XCRemoteSwiftPackageReference "Yams" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DA7B5CDD2DB1816700C69B29 /* Products */;
 			projectDirPath = "";
@@ -254,6 +263,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -279,6 +289,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -315,6 +326,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		DA7B5CEB2DB182E500C69B29 /* XCRemoteSwiftPackageReference "Yams" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jpsim/Yams.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.3.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DA7B5CEC2DB182E500C69B29 /* Yams */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DA7B5CEB2DB182E500C69B29 /* XCRemoteSwiftPackageReference "Yams" */;
+			productName = Yams;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DA7B5CD42DB1816700C69B29 /* Project object */;
 }
