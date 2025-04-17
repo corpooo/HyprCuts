@@ -5,7 +5,7 @@ This list tracks the implementation tasks derived from the v1 Acceptance Criteri
 ## 1. Core & General Setup
 
 - [ ] **1** **(AC1.1)** Implement core logic to define and trigger actions via master key + sequence:
-  - [ ] **1a** **(AC1.1, AC3.4)** Implement initial core logic: Detect `master_key` press/hold and suppress its default OS behavior.
+  - [x] **1a** **(AC1.1, AC3.4)** Implement initial core logic: Detect `master_key` press/hold and suppress its default OS behavior.
   - [ ] **1b** **(AC1.1, AC3.5)** Implement sequence listening framework activated by `master_key` hold and basic action triggering mechanism.
 - [x] **2** **(AC1.2)** Set up the application to run as a background utility process.
 - [ ] **3** **(AC7.1, AC7.2)** Implement Accessibility permissions check on startup.
