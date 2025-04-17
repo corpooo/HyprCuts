@@ -1,7 +1,15 @@
 ---
 description: 
-globs: *HyprCutsApp.swift
-alwaysApply: false
+globs: 
+alwaysApply: true
 ---
+## Errors and warnings
+
 You will always ignore the following error:
-`'main' attribute cannot be used in a module that contains top-level code`
+`'main' attribute cannot be used in a module that contains top-level code` inside the [HyprCutsApp.swift](mdc:HyprCuts/HyprCutsApp.swift)
+
+## Guidelines
+
+You will **NEVER** create files.
+You will check the current code structure to see if there isn't a file which should be updated instead.
+If you really, really need to create a file, you will prove me to create a file.
