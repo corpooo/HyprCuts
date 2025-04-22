@@ -8,35 +8,48 @@
 import AppKit  // Needed for NSEvent
 import Foundation
 
-// Defines the different types of actions HyprCuts can perform.
-// TODO: Expand with actual actions from AC4.1 (open_app, shell_command, keys)
+// Updated enum to match config action types
 enum HyprCutAction {
-  // A debug action to print details of the key event that triggered it.
-  case debugPrintKeyEvent(event: NSEvent)
-  // Add other action types here later, e.g.:
-  // case openApp(target: String)
-  // case runShellCommand(command: String)
-  // case typeKeys(keys: [String])
+  case openApp(target: String)
+  case runShellCommand(command: String)
+  case typeKeys(keysString: String)  // Using comma-separated string for now
+  case debugPrintKeyEvent(event: NSEvent)  // Keeping debug action
 }
 
 class ActionExecutor {
 
-  // Executes the specified HyprCutAction.
   func execute(action: HyprCutAction) {
     switch action {
+    case .openApp(let target):
+      handleOpenApp(target: target)
+    case .runShellCommand(let command):
+      handleRunShellCommand(command: command)
+    case .typeKeys(let keysString):
+      handleTypeKeys(keysString: keysString)
     case .debugPrintKeyEvent(let event):
       handleDebugPrintKeyEvent(event: event)
-    // Add cases for other actions here later
-    // case .openApp(let target):
-    //   print("Executing openApp: \(target)") // Placeholder
-    // case .runShellCommand(let command):
-    //   print("Executing shellCommand: \(command)") // Placeholder
-    // case .typeKeys(let keys):
-    //   print("Executing typeKeys: \(keys)") // Placeholder
     }
   }
 
-  // MARK: - Action Handlers
+  // MARK: - Mock Action Handlers
+
+  private func handleOpenApp(target: String) {
+    print("ActionExecutor [Mock]: Executing openApp with target='\(target)'")
+    // Actual implementation will involve NSWorkspace
+  }
+
+  private func handleRunShellCommand(command: String) {
+    print("ActionExecutor [Mock]: Executing shellCommand with command='\(command)'")
+    // Actual implementation will involve Process
+  }
+
+  private func handleTypeKeys(keysString: String) {
+    // We'll need to parse the keysString back into an array later
+    print("ActionExecutor [Mock]: Executing typeKeys with keys='\(keysString)'")
+    // Actual implementation will involve CGEvent posting
+  }
+
+  // MARK: - Existing Debug Handler (No changes needed below)
 
   private func handleDebugPrintKeyEvent(event: NSEvent) {
     let keyCode = CGKeyCode(event.keyCode)

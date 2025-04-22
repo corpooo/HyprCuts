@@ -1,0 +1,41 @@
+# Global settings for HyprCuts
+master_key: "slash" # Forward Slash key as the master key (using string representation)
+sequence_timeout_ms: 1000 # 1 second timeout between sequence key presses
+show_sequence_notification: true # Show visual feedback for sequences
+
+# List of key bindings
+bindings:
+  - keys: ["s", "a"] # Renamed from sequence. Master + S + A
+    action:
+      type: "open_app"
+      target: "Safari" # Can be app name or bundle ID (e.g., "com.apple.Safari")
+    description: "Open Safari" # Renamed from name and moved
+
+  - keys: ["e", "h"] # Renamed from sequence. Master + E + H
+    action:
+      type: "shell_command"
+      command: "echo 'Hello from HyprCuts!'"
+    description: "Echo Hello" # Renamed from name and moved
+
+  - keys: ["t", "g"] # Renamed from sequence. Master + T + G
+    action:
+      type: "keys"
+      keys:
+        - "H"
+        - "y"
+        - "p"
+        - "r"
+        - "C"
+        - "u"
+        - "t"
+        - "s"
+        - "!"
+        - "enter" # Example of a special key
+    description: "Type Greeting" # Renamed from name and moved
+
+  - keys: ["p", "v"] # Renamed from sequence. Master + P + V
+    action:
+      type: "keys"
+      keys:
+        - "lcmd+v" # Example of modifier combination
+    description: "Paste with Cmd+V" # Renamed from name and moved
