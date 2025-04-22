@@ -29,7 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Event Tap Properties
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var masterKeyCode: CGKeyCode = 39 // Placeholder: Single Quote (') key code
+    private var masterKeyCode: CGKeyCode = 44 // Forward slash (/) key code
 
     // State for Tap vs Hold detection
     private var isMasterKeyDown = false             // True ONLY if master key is confirmed HELD
