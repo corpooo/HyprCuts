@@ -11,6 +11,9 @@ import Foundation
 
 class KeyboardMonitor {
 
+  // MARK: - Dependencies
+  private let actionExecutor = ActionExecutor()
+
   // MARK: - Event Tap Properties
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
@@ -183,12 +186,15 @@ class KeyboardMonitor {
         if mySelf.isMasterKeyDown {
           // Master key is confirmed HELD, this is part of a sequence
           if type == .keyDown {
-            // print("Sequence key DOWN: \(keyCode)")
-            // TODO: Handle sequence input (Task 1b, 17)
+            // Task 1b: Use ActionExecutor for the debug action
+            let action = HyprCutAction.debugPrintKeyEvent(event: nsEvent)
+            mySelf.actionExecutor.execute(action: action)
+
+            // TODO: Integrate with actual sequence matching and action lookup (Task 1b, 17)
             // TODO: Notify delegate/callback about sequence key press
           }
           // Suppress other keys (down and up) while master key is held
-          // print("Suppressing sequence key event (Code: \(keyCode), Type: \(type.rawValue))")
+          // print("Suppressing sequence key event (Code: \\(keyCode), Type: \\(type.rawValue))")
           return nil
         } else {
           // Master key is not held, let other keys pass through
