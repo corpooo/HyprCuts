@@ -8,8 +8,8 @@ This list tracks the implementation tasks derived from the v1 Acceptance Criteri
   - [x] **1a** **(AC1.1, AC3.4)** Implement initial core logic: Detect `master_key` press/hold and suppress its default OS behavior.
   - [ ] **1b** **(AC1.1, AC3.5)** Implement sequence listening framework activated by `master_key` hold and basic action triggering mechanism.
 - [x] **2** **(AC1.2)** Set up the application to run as a background utility process.
-- [ ] **3** **(AC7.1, AC7.2)** Implement Accessibility permissions check on startup.
-- [ ] **4** **(AC7.2)** Provide user guidance to grant Accessibility permissions if missing.
+- [x] **3** **(AC7.1, AC7.2)** Implement Accessibility permissions check on startup.
+- [x] **4** **(AC7.2)** Provide user guidance to grant Accessibility permissions if missing.
 - [ ] **5** **(AC7.3, AC7.4)** Implement standard macOS launch-at-login functionality.
 - [x] **6** **(AC8.1)** Ensure project targets macOS 13 (Ventura) or newer.
 - [ ] **7** **(AC8.2)** Profile and optimize for minimal resource usage.

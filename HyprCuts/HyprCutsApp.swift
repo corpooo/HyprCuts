@@ -1,3 +1,4 @@
+import ApplicationServices  // Import for Accessibility APIs
 import CoreGraphics
 import SwiftUI
 
@@ -15,6 +16,16 @@ struct HyprCutsApp: App {
             EmptyView()  // Placeholder for potential future settings UI
         }
     }
+
+    private var popover: NSPopover?
+
+    // MARK: - Dependencies
+    private var keyboardMonitor: KeyboardMonitor?
+    private var permissionPollTimer: Timer?
+
+    // MARK: - State
+    private var hasAccessibilityPermissions: Bool = false
+    private var isWaitingForPermissions: Bool = false
 }
 
 // Create the AppDelegate class
@@ -23,31 +34,132 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Strong reference to the status bar item
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?  // Keep track of the menu
-    // Potential popover reference if using SwiftUI for menu UI later
-    // private var popover: NSPopover?
 
     // MARK: - Dependencies
     private var keyboardMonitor: KeyboardMonitor?
+    private var permissionPollTimer: Timer?
+
+    // MARK: - State
+    private var hasAccessibilityPermissions: Bool = false
+    private var isWaitingForPermissions: Bool = false
 
     // MARK: - NSApplicationDelegate Methods
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("HyprCuts App finished launching!")
+
+        checkAccessibilityPermissions()
+
         setupMenuBar()
         // setupEventTap() // <-- Removed: Now handled by KeyboardMonitor
 
-        // Initialize Keyboard Monitor
-        keyboardMonitor = KeyboardMonitor()
-        keyboardMonitor?.start()
+        // Initialize Keyboard Monitor only if permissions are initially granted
+        if hasAccessibilityPermissions {
+            initializeAndStartKeyboardMonitor()
+        } else {
+            print("Keyboard Monitor not started. Waiting for Accessibility permissions.")
+            // TODO: Update UI to clearly indicate permissions are needed (Task 28)
+        }
 
         // TODO: Initialize Config Manager (Load initial config)
-        // TODO: Check Accessibility Permissions
+        // TODO: Add logic to update menu bar state based on permissions (Task 28)
+        // TODO: Add logic to prompt user if permissions are missing (Task 4)
+    }
+
+    // Called when the app becomes active (e.g., returning from System Settings)
+    func applicationDidBecomeActive(_ notification: Notification) {
+        print("Application became active.")
+        // Note: Permission checking after prompt is now handled by the timer polling mechanism.
+        // This method remains for other potential activation tasks.
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         print("HyprCuts App will terminate.")
         // Stop the keyboard monitor
         keyboardMonitor?.stop()
+        // Stop the timer if it's running
+        permissionPollTimer?.invalidate()
         // TODO: Perform any necessary cleanup
+    }
+
+    // MARK: - Initialization Helpers
+    private func initializeAndStartKeyboardMonitor() {
+        guard keyboardMonitor == nil else {
+            print("Keyboard Monitor already initialized.")
+            return
+        }
+        print("Initializing and starting Keyboard Monitor...")
+        keyboardMonitor = KeyboardMonitor()
+        keyboardMonitor?.start()
+    }
+
+    // MARK: - Accessibility Permissions
+    @objc private func pollForPermissions() {
+        print("Polling for accessibility permissions...")
+        let checkOptions: [String: Bool] = [
+            kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: false
+        ]
+        let currentlyTrusted = AXIsProcessTrustedWithOptions(checkOptions as CFDictionary)
+
+        if currentlyTrusted {
+            print("Permissions granted during polling.")
+            hasAccessibilityPermissions = true
+            isWaitingForPermissions = false
+
+            // Stop the timer
+            permissionPollTimer?.invalidate()
+            permissionPollTimer = nil
+
+            // Start the keyboard monitor if it wasn't already
+            if keyboardMonitor == nil {
+                initializeAndStartKeyboardMonitor()
+            }
+            // TODO: Update UI to normal state (Task 28)
+
+        } else {
+            print("Permissions still not granted.")
+        }
+    }
+
+    private func checkAccessibilityPermissions() {
+        // Check if the app is already trusted *without* prompting initially
+        let checkOptions: [String: Bool] = [
+            kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: false
+        ]
+        hasAccessibilityPermissions = AXIsProcessTrustedWithOptions(checkOptions as CFDictionary)
+
+        if hasAccessibilityPermissions {
+            print("Accessibility permissions granted.")
+            permissionPollTimer?.invalidate()  // Stop polling if manually re-checked and OK
+            permissionPollTimer = nil
+            isWaitingForPermissions = false
+            // TODO: Update UI to normal state if it was previously showing a warning (Task 28)
+        } else {
+            print("Accessibility permissions not granted. Prompting user.")
+            isWaitingForPermissions = true
+            // Prompt the user to grant permissions. This opens the system dialog.
+            let promptOptions: [String: Bool] = [
+                kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true
+            ]
+            _ = AXIsProcessTrustedWithOptions(promptOptions as CFDictionary)
+            // Don't re-check here. Will check again in applicationDidBecomeActive.
+            // Instead, start a timer to poll for permission changes.
+            if permissionPollTimer == nil {
+                print("Starting timer to poll for permissions...")
+                permissionPollTimer = Timer.scheduledTimer(
+                    timeInterval: 2.0,  // Poll every 2 seconds
+                    target: self,
+                    selector: #selector(pollForPermissions),
+                    userInfo: nil,
+                    repeats: true
+                )
+                // Add to runloop to ensure it fires even if menu is open
+                RunLoop.current.add(permissionPollTimer!, forMode: .common)
+            }
+
+            // TODO: Implement Task 28: Update menu bar icon state (e.g., show a warning icon).
+            // Note: The app might still function partially without permissions,
+            // but core features requiring event taps will fail.
+        }
     }
 
     // MARK: - Menu Bar Setup
