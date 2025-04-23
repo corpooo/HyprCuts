@@ -2,6 +2,7 @@ import ApplicationServices  // Import for Accessibility APIs
 import Combine  // Needed for Combine subscriptions
 import CoreGraphics
 import SwiftUI
+import os  // Add import for os.Logger
 
 @main
 struct HyprCutsApp: App {
@@ -28,6 +29,9 @@ struct HyprCutsApp: App {
 
 // MARK: - Application Delegate
 class AppDelegate: NSObject, NSApplicationDelegate {
+    // Logger instance
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "AppDelegate")
+
     // Strong reference to the status bar item
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?  // Keep track of the menu
@@ -48,7 +52,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - NSApplicationDelegate Methods
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("HyprCuts App finished launching!")
+        logger.info("HyprCuts App finished launching!")
 
         checkAccessibilityPermissions()
 
@@ -61,7 +65,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if hasAccessibilityPermissions {
             initializeMonitors()
         } else {
-            print("Keyboard Monitor not started. Waiting for Accessibility permissions.")
+            logger.warning("Keyboard Monitor not started. Waiting for Accessibility permissions.")
             // The menu bar icon/state will be updated later if needed
         }
         updateMenuBarState()  // Initial update based on state
@@ -84,13 +88,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Called when the app becomes active (e.g., returning from System Settings)
     func applicationDidBecomeActive(_ notification: Notification) {
-        print("Application became active.")
+        logger.debug("Application became active.")
         // Note: Permission checking after prompt is now handled by the timer polling mechanism.
         // This method remains for other potential activation tasks.
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        print("HyprCuts App will terminate.")
+        logger.info("HyprCuts App will terminate.")
         // Stop the keyboard monitor
         keyboardMonitor?.stop()
         // Stop the timer if it's running
@@ -109,50 +113,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Renamed for clarity
     private func initializeMonitors() {
         guard keyboardMonitor == nil else {
-            print("Monitors already initialized.")
+            logger.debug("Monitors already initialized.")
             return
         }
         guard hasAccessibilityPermissions else {
-            print("Cannot initialize monitors without Accessibility permissions.")
+            logger.warning("Cannot initialize monitors without Accessibility permissions.")
             return
         }
-        print("Initializing Monitors...")
+        logger.info("Initializing Monitors...")
 
         // Ensure we have an actionExecutor instance
         guard let executor = self.actionExecutor else {
-            print("ERROR: ActionExecutor not initialized before KeyboardMonitor.")
+            logger.error("ActionExecutor not initialized before KeyboardMonitor.")
             return
         }
 
         // Init KeyboardMonitor
-        print("Initializing Keyboard Monitor...")
+        logger.debug("Initializing Keyboard Monitor...")
         let monitor = KeyboardMonitor(actionExecutor: executor)
         self.keyboardMonitor = monitor
 
         // Init Notification Controller AFTER monitor is created
-        print("Initializing Sequence Notification Controller...")
+        logger.debug("Initializing Sequence Notification Controller...")
         self.sequenceNotificationController = SequenceNotificationController(
             keyboardMonitor: monitor)
 
         // Start KeyboardMonitor AFTER controller is set up
-        print("Starting Keyboard Monitor...")
+        logger.info("Starting Keyboard Monitor...")
         if isEnabled {  // Only start if the app is conceptually enabled
             monitor.start()
         } else {
-            print("Keyboard monitor initialized but not started (App is disabled).")
+            logger.info("Keyboard monitor initialized but not started (App is disabled).")
         }
     }
 
     // MARK: - Accessibility Permissions
     @objc private func pollForPermissions() {
-        print("Polling for accessibility permissions...")
+        logger.debug("Polling for accessibility permissions...")
         let checkOptions: [String: Bool] = [
             kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: false
         ]
         let currentlyTrusted = AXIsProcessTrustedWithOptions(checkOptions as CFDictionary)
 
         if currentlyTrusted {
-            print("Permissions granted during polling.")
+            logger.info("Permissions granted during polling.")
             hasAccessibilityPermissions = true
             isWaitingForPermissions = false
 
@@ -167,7 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             updateMenuBarState()  // Update menu state (icon, items)
 
         } else {
-            print("Permissions still not granted.")
+            logger.debug("Permissions still not granted.")
             // Keep polling
         }
     }
@@ -180,13 +184,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hasAccessibilityPermissions = AXIsProcessTrustedWithOptions(checkOptions as CFDictionary)
 
         if hasAccessibilityPermissions {
-            print("Accessibility permissions granted.")
+            logger.info("Accessibility permissions granted.")
             permissionPollTimer?.invalidate()  // Stop polling if manually re-checked and OK
             permissionPollTimer = nil
             isWaitingForPermissions = false
             // TODO: Update UI to normal state if it was previously showing a warning (Task 28)
         } else {
-            print("Accessibility permissions not granted. Prompting user.")
+            logger.warning("Accessibility permissions not granted. Prompting user.")
             isWaitingForPermissions = true
             // Prompt the user to grant permissions. This opens the system dialog.
             let promptOptions: [String: Bool] = [
@@ -196,7 +200,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Don't re-check here. Will check again in applicationDidBecomeActive.
             // Instead, start a timer to poll for permission changes.
             if permissionPollTimer == nil {
-                print("Starting timer to poll for permissions...")
+                logger.info("Starting timer to poll for permissions...")
                 permissionPollTimer = Timer.scheduledTimer(
                     timeInterval: 2.0,  // Poll every 2 seconds
                     target: self,
@@ -347,16 +351,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Action triggered by clicking the status bar item button
     @objc func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        // Default behavior is usually sufficient - the menu assigned will show.
-        print("Status bar button clicked. Default menu should appear if set.")
+        logger.debug("Status bar button clicked. Default menu should appear if set.")
     }
 
     // --- Menu Actions --- (Task 27)
 
     @objc func toggleEnable(_ sender: NSMenuItem) {
-        print("Toggle Enable/Disable action triggered")
+        logger.debug("Toggle Enable/Disable action triggered")
         isEnabled.toggle()
-        print("HyprCuts is now \(isEnabled ? "Enabled" : "Disabled")")
+        logger.info("HyprCuts is now \(self.isEnabled ? "Enabled" : "Disabled")")
 
         if isEnabled {
             // If enabling, ensure monitors are initialized and started
@@ -374,7 +377,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func restartApp(_ sender: Any?) {
-        print("Restart action triggered")
+        logger.info("Restart action triggered")
         // Simple restart implementation
         guard let resourcePath = Bundle.main.resourcePath else { return }
         let url = URL(fileURLWithPath: resourcePath)
@@ -386,19 +389,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             try task.run()
             NSApp.terminate(nil)
         } catch {
-            print("Error restarting application: \(error)")
+            logger.error("Error restarting application: \(error.localizedDescription)")
             // TODO: Show error to user?
         }
     }
 
     @objc func reloadConfig(_ sender: Any?) {
-        print("Reload Config action triggered")
+        logger.info("Reload Config action triggered")
         configManager.reloadConfig()  // This posts the notification handled below
     }
 
     // Called when ConfigManager posts notification
     @objc private func configDidReload() {
-        print("AppDelegate received config reload notification.")
+        logger.debug("AppDelegate received config reload notification.")
         // Update keyboard monitor with new config values
         keyboardMonitor?.updateConfigValues()
         // Update menu bar state (e.g., master key display)

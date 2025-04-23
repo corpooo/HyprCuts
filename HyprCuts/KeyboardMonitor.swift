@@ -9,6 +9,7 @@ import AppKit  // Needed for NSEvent
 import CoreGraphics
 import Foundation
 import SwiftUI  // Add this import for ObservableObject
+import os  // Add import
 
 // Conform to ObservableObject
 class KeyboardMonitor: ObservableObject {
@@ -57,6 +58,9 @@ class KeyboardMonitor: ObservableObject {
   // MARK: - Callbacks
   var onSequenceCompleted: (([String]) -> Void)?  // Callback for successful sequence completion
 
+  // Logger instance
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "KeyboardMonitor")
+
   init(actionExecutor: ActionExecutor) {
     self.actionExecutor = actionExecutor
     // Load initial config values
@@ -69,12 +73,12 @@ class KeyboardMonitor: ObservableObject {
   }
 
   func start() {
-    print("Starting Keyboard Monitor...")
+    logger.info("Starting Keyboard Monitor...")
     setupEventTap()
   }
 
   func stop() {
-    print("Stopping Keyboard Monitor...")
+    logger.info("Stopping Keyboard Monitor...")
     if let eventTap = eventTap {
       CGEvent.tapEnable(tap: eventTap, enable: false)
       if let runLoopSource = runLoopSource {
@@ -83,7 +87,7 @@ class KeyboardMonitor: ObservableObject {
       }
       // CFMachPortInvalidate(eventTap) // This might be needed but test first
       self.eventTap = nil  // Release reference
-      print("Event tap disabled and removed from run loop.")
+      logger.info("Event tap disabled and removed from run loop.")
     }
     masterKeyHeldTimer?.invalidate()
     masterKeyHeldTimer = nil
@@ -94,7 +98,7 @@ class KeyboardMonitor: ObservableObject {
   private func setupEventTap() {
     // Check if already running
     guard eventTap == nil else {
-      print("Event tap already configured.")
+      logger.debug("Event tap already configured.")
       return
     }
 
@@ -104,8 +108,9 @@ class KeyboardMonitor: ObservableObject {
       // `refcon` holds the `self` reference passed during tap creation.
       // We need to safely unwrap it.
       guard let refcon = refcon else {
-        print("Error: refcon is nil in event tap callback")
-        // Pass the event through if we can't get self
+        // Use temporary logger as self isn't available
+        Logger(subsystem: Bundle.main.bundleIdentifier!, category: "KeyboardMonitor").error(
+          "refcon is nil in event tap callback")
         return Unmanaged.passRetained(event)
       }
       let mySelf = Unmanaged<KeyboardMonitor>.fromOpaque(refcon).takeUnretainedValue()
@@ -118,28 +123,28 @@ class KeyboardMonitor: ObservableObject {
 
       // Ensure we have a valid master key configured
       guard let targetMasterKeyCode = mySelf.configuredMasterKeyCode else {
-        // print("KeyboardMonitor: No valid master key configured. Passing event through.")
+        // logger.trace("No valid master key configured. Passing event through.") // Use trace/debug if needed
         return Unmanaged.passRetained(event)
       }
 
       // Use AppKit's NSEvent for easier key code access
       guard let nsEvent = NSEvent(cgEvent: event) else {
-        print("Error converting CGEvent to NSEvent for key event")
+        mySelf.logger.error("Error converting CGEvent to NSEvent for key event")
         return Unmanaged.passRetained(event)
       }
       let keyCode = CGKeyCode(nsEvent.keyCode)
-      // print("Detected key event - Code: \(keyCode), Type: \(type.rawValue)")
+      // mySelf.logger.trace("Detected key event - Code: \(keyCode), Type: \(type.rawValue)")
 
       // Check if it's the configured master key
       if keyCode == targetMasterKeyCode {
         if type == .keyDown {
           // If master key is already confirmed held, or we are already processing a press, ignore repeat keyDowns
           if mySelf.isMasterKeyDown || mySelf.isMasterKeyHeldProcessing {
-            // print("Ignoring repeat Master key DOWN event.")
+            // mySelf.logger.trace("Ignoring repeat Master key DOWN event.")
             return nil  // Suppress repeat down events
           }
 
-          // print("Master key DOWN (potential tap/hold)")
+          // mySelf.logger.trace("Master key DOWN (potential tap/hold)")
           // Store the necessary info from the event
           mySelf.pendingMasterKeyDownCode = keyCode
           mySelf.pendingMasterKeyDownFlags = event.flags
@@ -152,7 +157,9 @@ class KeyboardMonitor: ObservableObject {
           // Start the timer to detect a hold
           // Use the configured tap timeout directly (default handled by ConfigManager)
           let timeout = Double(mySelf.configuredTapTimeoutMs) / 1000.0
-          print("DEBUG: Starting master key hold timer with timeout: \(timeout)s")
+          mySelf.logger.debug(
+            "Starting master key hold timer with timeout: \(timeout, format: .fixed(precision: 3))s"
+          )
           mySelf.masterKeyHeldTimer = Timer.scheduledTimer(
             timeInterval: timeout,
             target: mySelf,
@@ -161,15 +168,15 @@ class KeyboardMonitor: ObservableObject {
             repeats: false
           )
 
-          // print("Suppressing initial Master key DOWN event.")
+          // mySelf.logger.trace("Suppressing initial Master key DOWN event.")
           return nil  // Suppress the initial down event
 
         } else {  // .keyUp
-          // print("Master key UP received.")
+          // mySelf.logger.trace("Master key UP received.")
           // Was this the keyUp for our potential tap/hold?
           if mySelf.isMasterKeyHeldProcessing {
             // KeyUp happened *before* the timer fired - it's a TAP
-            // print("Detected Master key TAP.")
+            // mySelf.logger.trace("Detected Master key TAP.")
             mySelf.masterKeyHeldTimer?.invalidate()  // Cancel the timer
             mySelf.masterKeyHeldTimer = nil
             mySelf.isMasterKeyHeldProcessing = false  // Done processing
@@ -182,14 +189,14 @@ class KeyboardMonitor: ObservableObject {
               let downFlags = mySelf.pendingMasterKeyDownFlags ?? CGEventFlags()  // Use stored flags or default
               let upFlags = event.flags  // Use flags from the actual keyUp event
 
-              // print("Disabling event tap temporarily to replay TAP events.")
+              // mySelf.logger.trace("Disabling event tap temporarily to replay TAP events.")
               CGEvent.tapEnable(tap: currentTap, enable: false)
 
               // Synthesize and post events using the helper
               mySelf.postSynthesizedKeyEvent(keyCode: downCode, keyDown: true, flags: downFlags)
               mySelf.postSynthesizedKeyEvent(keyCode: downCode, keyDown: false, flags: upFlags)
 
-              // print("Re-enabling event tap.")
+              // mySelf.logger.trace("Re-enabling event tap.")
               CGEvent.tapEnable(tap: currentTap, enable: true)
 
               // Clear stored info
@@ -201,20 +208,21 @@ class KeyboardMonitor: ObservableObject {
               mySelf.resetSequenceStateInternal()
 
               // Suppress the original keyUp event in the callback, as we manually synthesized it.
-              // print("Suppressing original Master key UP event callback for TAP.")
+              // mySelf.logger.trace("Suppressing original Master key UP event callback for TAP.")
               return nil
             } else {
-              // print("Warning: Master key TAP detected, but no stored key code or event tap found to replay.")
+              mySelf.logger.warning(
+                "Master key TAP detected, but no stored key code or event tap found to replay.")
             }
 
             // Suppress the original keyUp event in the callback, as we manually synthesized it.
-            // print("Suppressing original Master key UP event callback for TAP.")
+            // mySelf.logger.trace("Suppressing original Master key UP event callback for TAP.")
             return nil
           } else if mySelf.isMasterKeyDown {
             // KeyUp happened *after* the timer fired - it's the end of a HOLD
-            // print("Master key HELD released.")
+            // mySelf.logger.trace("Master key HELD released.")
             mySelf.isMasterKeyDown = false  // No longer held <-- Update published state
-            print("DEBUG: Master key released (Hold ended). Resetting sequence state.")
+            mySelf.logger.debug("Master key released (Hold ended). Resetting sequence state.")
             // Clear stored info
             mySelf.pendingMasterKeyDownCode = nil
             mySelf.pendingMasterKeyDownFlags = nil
@@ -226,7 +234,7 @@ class KeyboardMonitor: ObservableObject {
             return nil
           } else {
             // Master key was not held or being processed (e.g., keyUp without prior keyDown?). Let it pass.
-            // print("Passing through unexpected Master key UP event.")
+            // mySelf.logger.trace("Passing through unexpected Master key UP event.")
             return Unmanaged.passRetained(event)
           }
         }
@@ -237,15 +245,15 @@ class KeyboardMonitor: ObservableObject {
           if type == .keyDown {
             // Convert the pressed key event to its string representation
             if let keyString = mySelf.keyStringFromEvent(event) {
-              print("DEBUG: Sequence Key Down: \(keyString)")
+              mySelf.logger.debug("Sequence Key Down: \(keyString)")
               mySelf.processSequenceKey(keyString: keyString)
             } else {
-              print("WARN: Could not get string representation for key code \(keyCode)")
+              mySelf.logger.warning("Could not get string representation for key code \(keyCode)")
               // Optionally provide feedback for unrecognized keys
             }
           }
           // Suppress other keys (down and up) while master key is held
-          // print("Suppressing sequence key event (Code: \(keyCode), Type: \(type.rawValue))")
+          // mySelf.logger.trace("Suppressing sequence key event (Code: \(keyCode), Type: \(type.rawValue))")
           return nil
         } else {
           // Master key is not held, let other keys pass through
@@ -273,35 +281,35 @@ class KeyboardMonitor: ObservableObject {
     )
 
     guard let eventTap = eventTap else {
-      print("FATAL: Failed to create event tap. Check Accessibility Permissions.")
+      logger.critical("Failed to create event tap. Check Accessibility Permissions.")
       // TODO: Handle this error robustly (Task 4, 12, 28) - Maybe via delegate/notification
       // Consider showing an alert or updating the menu bar icon via AppDelegate.
       return
     }
-    print("Event tap created successfully.")
+    logger.info("Event tap created successfully.")
 
     // Create a run loop source and add it to the current run loop.
     runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
     guard let runLoopSource = runLoopSource else {
-      print("FATAL: Failed to create run loop source.")
+      logger.critical("Failed to create run loop source.")
       CFMachPortInvalidate(eventTap)  // Clean up the tap
       self.eventTap = nil
       // TODO: Handle this error robustly - Maybe via delegate/notification
       return
     }
     CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
-    print("Event tap added to run loop.")
+    logger.debug("Event tap added to run loop.")
 
     // Enable the event tap.
     CGEvent.tapEnable(tap: eventTap, enable: true)
-    print("Event tap enabled.")
+    logger.info("Event tap enabled.")
   }
 
   // MARK: - Configuration Handling
 
   /// Updates the monitor's behavior based on the current ConfigManager state.
   func updateConfigValues() {
-    print("KeyboardMonitor: Updating config values...")
+    logger.info("Updating config values...")
     // Reset state that depends on config
     self.configuredMasterKeyCode = nil
     self.isMasterKeyDown = false
@@ -316,18 +324,18 @@ class KeyboardMonitor: ObservableObject {
     {
       self.configuredMasterKeyCode = code
     } else {
-      print("KeyboardMonitor: Master key not found in config.")
+      logger.warning("Master key not found in config.")
     }
     self.configuredTapTimeoutMs = configManager.getMasterKeyTapTimeout()
 
     // Load the v2 bindings tree
     self.rootBindings = configManager.getBindings()
     if self.rootBindings == nil || self.rootBindings!.isEmpty {
-      print("KeyboardMonitor: WARNING - No bindings loaded or bindings are empty.")
+      logger.warning("No bindings loaded or bindings are empty.")
     }
 
-    print(
-      "KeyboardMonitor: Config updated. MasterKeyCode: \(String(describing: configuredMasterKeyCode)), TapTimeout: \(configuredTapTimeoutMs)ms"
+    logger.info(
+      "Config updated. MasterKeyCode: \(String(describing: self.configuredMasterKeyCode)), TapTimeout: \(self.configuredTapTimeoutMs)ms"
     )
 
     // If the tap is already running, potentially restart it if master key changed?
@@ -339,19 +347,18 @@ class KeyboardMonitor: ObservableObject {
 
   /// Called when the configuration has potentially changed.
   @objc private func masterKeyHeldTimerFired(_ timer: Timer) {
-    print("DEBUG: Master key HELD timer fired.")
+    logger.debug("Master key HELD timer fired.")
     masterKeyHeldTimer = nil  // Timer is non-repeating
     if isMasterKeyHeldProcessing {
-      print("DEBUG: Master key confirmed HELD.")
+      logger.debug("Master key confirmed HELD.")
       isMasterKeyDown = true  // <-- Update published property
       isMasterKeyHeldProcessing = false
       // Initial sequence state is root (empty path) when hold starts
       // Do NOT reset here, the sequence starts *after* the hold is confirmed
       // resetSequenceStateInternal() // <-- Remove reset here
     } else {
-      print(
-        "DEBUG: Timer fired, but master key processing was already finished (likely KeyUp occurred)."
-      )
+      logger.debug(
+        "Timer fired, but master key processing was already finished (likely KeyUp occurred).")
     }
   }
 
@@ -360,12 +367,12 @@ class KeyboardMonitor: ObservableObject {
   // Helper function to synthesize and post key events
   private func postSynthesizedKeyEvent(keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {
     guard let source = CGEventSource(stateID: .hidSystemState) else {
-      print("Error: Failed to create event source for synthesizing key event.")
+      logger.error("Failed to create event source for synthesizing key event.")
       return
     }
     guard let keyEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: keyDown)
     else {
-      print("Error: Failed to create keyboard event for synthesizing.")
+      logger.error("Failed to create keyboard event for synthesizing.")
       return
     }
     keyEvent.flags = flags
@@ -373,7 +380,7 @@ class KeyboardMonitor: ObservableObject {
   }
 
   private func resetSequenceStateInternal() {
-    print("DEBUG: Resetting sequence state. Path cleared.")
+    logger.debug("Resetting sequence state. Path cleared.")
     // Only update if the path is not already empty to avoid unnecessary publishes
     if !currentBindingPath.isEmpty {
       currentBindingPath = []  // <-- Update published property
@@ -392,13 +399,13 @@ class KeyboardMonitor: ObservableObject {
 
   private func processSequenceKey(keyString: String) {
     guard let rootBindings = self.rootBindings, !rootBindings.isEmpty else {
-      print("WARN: No bindings loaded or bindings are empty, cannot process sequence key.")
+      logger.warning("No bindings loaded or bindings are empty, cannot process sequence key.")
       resetSequenceStateInternal()  // Reset if bindings disappear or are empty
       return
     }
 
-    print(
-      "DEBUG: Processing sequence key: \"\(keyString)\". Current path: [\(currentBindingPath.joined(separator: ", "))]"
+    logger.debug(
+      "Processing sequence key: \"\(keyString)\". Current path: [\(currentBindingPath.joined(separator: ", "))]"
     )
 
     var nodeFound = false
@@ -406,7 +413,7 @@ class KeyboardMonitor: ObservableObject {
     // 1. Check children of current node (AC2.3a)
     if let currentNode = self.currentBindingNode, case .branch(let children) = currentNode {
       if let nextNode = children[keyString] {
-        print("DEBUG: Found key '\(keyString)' as child of current node.")
+        logger.debug("Found key '\(keyString)' as child of current node.")
         self.currentBindingPath.append(keyString)
         self.currentBindingNode = nextNode
         nodeFound = true
@@ -419,7 +426,7 @@ class KeyboardMonitor: ObservableObject {
     if !nodeFound {
       // Check root first
       if let rootNode = rootBindings[keyString] {
-        print("DEBUG: Found key '\(keyString)' at root level.")
+        logger.debug("Found key '\(keyString)' at root level.")
         self.currentBindingPath = [keyString]  // Start new path from root
         self.currentBindingNode = rootNode
         nodeFound = true
@@ -439,7 +446,7 @@ class KeyboardMonitor: ObservableObject {
           let ancestorPath = Array(currentBindingPath.prefix(i))
           if let ancestorNode = getNode(at: ancestorPath), case .branch(let ancestorChildren) = ancestorNode {
               if let nextNode = ancestorChildren[keyString] {
-                   print("DEBUG: Found key '\(keyString)' as child of ancestor at path [\\(ancestorPath.joined(separator: ", "))]")
+                   logger.trace("Found key '\(keyString)' as child of ancestor at path [\(ancestorPath.joined(separator: ", "))]")
                    self.currentBindingPath = ancestorPath + [keyString]
                    self.currentBindingNode = nextNode
                    nodeFound = true
@@ -450,7 +457,7 @@ class KeyboardMonitor: ObservableObject {
           // Also check root level within the loop if current path is not empty
            if i == 0 && currentBindingPath.count > 0 { // Check root only once if not already found
                if let rootNode = rootBindings[keyString] {
-                   print("DEBUG: Found key '\(keyString)' at root level (during ancestor check).")
+                   logger.trace("Found key '\(keyString)' at root level (during ancestor check).")
                    self.currentBindingPath = [keyString] // Start new path from root
                    self.currentBindingNode = rootNode
                    nodeFound = true
@@ -465,9 +472,8 @@ class KeyboardMonitor: ObservableObject {
 
     // 4. If not found anywhere (AC2.3c)
     if !nodeFound {
-      print(
-        "DEBUG: Invalid key '\(keyString)' for current sequence path [\\(currentBindingPath.joined(separator: ",
-        "))]. No change in state."
+      logger.debug(
+        "Invalid key '\(keyString)' for current sequence path [\(currentBindingPath.joined(separator: ", "))]. No change in state."
       )
       // TODO: Implement user feedback (toast/log) for invalid key (Task 18, AC4.3)
     }
@@ -476,19 +482,18 @@ class KeyboardMonitor: ObservableObject {
   private func checkAndExecuteAction() {
     guard let node = currentBindingNode else { return }  // Should have a node if we got here
     guard let lastKey = currentBindingPath.last else {
-      print("WARN: checkAndExecuteAction called with empty path. Cannot determine slot key.")
+      logger.warning("checkAndExecuteAction called with empty path. Cannot determine slot key.")
       resetSequenceStateInternal()  // Reset if path is unexpectedly empty
       return
     }
 
-    print(
-      "DEBUG: Checking action for node at path: [\\(currentBindingPath.joined(separator: ", "))]"
-    )
+    logger.debug(
+      "Checking action for node at path: [\(currentBindingPath.joined(separator: ", "))]")
 
     switch node {
     case .leaf(let configAction):  // Renamed 'action' to 'configAction' for clarity
       if let configAction = configAction {
-        print("DEBUG: Found action at leaf node: \\(configAction)")
+        logger.debug("Found action at leaf node: \(configAction)")
 
         var hyprActionToExecute: HyprCutAction? = nil
 
@@ -510,31 +515,30 @@ class KeyboardMonitor: ObservableObject {
         if let finalAction = hyprActionToExecute {
           // Signal completion *before* executing and resetting
           // Pass a copy of the path as it is *right now*
-          print("DEBUG: Signaling sequence completion for path: \\(currentBindingPath)")
+          logger.debug("Signaling sequence completion for path: \(currentBindingPath)")
           onSequenceCompleted?(currentBindingPath)
 
-          print("DEBUG: Executing action: \\(finalAction)")
+          logger.debug("Executing action: \(finalAction)")
           actionExecutor.execute(action: finalAction)
 
           // Reset state immediately now that we've signaled
           revertToParentNode()
         } else {
-          print(
-            "WARN: Could not determine executable HyprCutAction for config action: \\(configAction)"
-          )
+          logger.warning(
+            "Could not determine executable HyprCutAction for config action: \(configAction)")
           // If action conversion fails, maybe don't signal completion?
           // Or signal and let UI decide? For now, let's just reset.
           revertToParentNode()
         }
       } else {
         // Leaf node with no action defined (AC2.4b)
-        print("DEBUG: Found leaf node with no action.")
+        logger.debug("Found leaf node with no action.")
         // No action, so don't signal completion. Just revert.
         revertToParentNode()
       }
     case .branch:
       // Branch node, do nothing, wait for next key (AC2.4c)
-      print("DEBUG: Reached branch node. Waiting for next key.")
+      logger.debug("Reached branch node. Waiting for next key.")
       break
     }
   }
@@ -542,13 +546,13 @@ class KeyboardMonitor: ObservableObject {
   private func revertToParentNode() {
     if !currentBindingPath.isEmpty {
       currentBindingPath.removeLast()
-      print("DEBUG: Reverted path to: [\(currentBindingPath.joined(separator: ", "))]")
+      logger.debug("Reverted path to: [\(currentBindingPath.joined(separator: ", "))]")
       // Update currentBindingNode based on the new path
       currentBindingNode = getNode(at: currentBindingPath)
     } else {
       // If path is empty, we are back at the root
       currentBindingNode = nil
-      print("DEBUG: Reverted path to root.")
+      logger.debug("Reverted path to root.")
     }
   }
 
@@ -560,7 +564,7 @@ class KeyboardMonitor: ObservableObject {
 
     for key in path {
       guard let currentDict = currentNode, let nextNode = currentDict[key] else {
-        print("WARN: Path [\(path.joined(separator: ", "))] became invalid during traversal.")
+        logger.warning("Path [\(path.joined(separator: ", "))] became invalid during traversal.")
         return nil  // Path is invalid
       }
       resultNode = nextNode
@@ -575,7 +579,7 @@ class KeyboardMonitor: ObservableObject {
 
   // Public function to be called by ActionExecutor or other components
   public func resetSequenceState() {  // Make explicitly public
-    print("DEBUG: Public resetSequenceState called.")
+    logger.debug("Public resetSequenceState called.")
     resetSequenceStateInternal()
   }
 

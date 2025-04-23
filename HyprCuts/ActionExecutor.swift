@@ -187,59 +187,54 @@ class ActionExecutor {
   // MARK: - Harpoon Action Handlers
 
   private func handleHarpoonSet(slotKey: String) {
-    logger.debug("Executing harpoon:set for slot '\\(slotKey)'")
+    logger.debug("Executing harpoon:set for slot '\(slotKey)'")
     guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
-      logger.error("Harpoon:set failed: Could not determine frontmost application.")
-      // TODO: Notify user (Task 40b)
+      // Task 40b: Error notification
+      logger.error("Harpoon Error: Could not determine frontmost application.")
       return
     }
 
     guard let bundleIdentifier = frontmostApp.bundleIdentifier else {
-      logger.error(
-        "Harpoon:set failed: Could not get bundle identifier for frontmost application ('\(frontmostApp.localizedName ?? "Unknown")')."
-      )
-      // TODO: Notify user (Task 40b)
+      let appName = frontmostApp.localizedName ?? "Unknown"
+      // Task 40b: Error notification
+      logger.error("Harpoon Error: Could not get bundle identifier for '\(appName)'.")
       return
     }
 
+    let appName = frontmostApp.localizedName ?? bundleIdentifier  // Prefer name for logging
     HarpoonManager.shared.setPairing(forKey: slotKey, bundleIdentifier: bundleIdentifier)
-    logger.info(
-      "Harpoon:set successful for slot '\\(slotKey)' to '\\(bundleIdentifier)' (\(frontmostApp.localizedName ?? "Unknown"))."
-    )
-    // TODO: Notify user of success (Task 40a)
+    // Task 40a: Confirmation notification
+    logger.info("Harpoon: Set slot '\(slotKey)' to '\(appName)'.")
   }
 
   private func handleHarpoonRm(slotKey: String) {
-    logger.debug("Executing harpoon:rm for slot '\\(slotKey)'")
-    // Check if pairing exists before attempting removal to provide better feedback
+    logger.debug("Executing harpoon:rm for slot '\(slotKey)'")
     if HarpoonManager.shared.getPairing(forKey: slotKey) != nil {
       HarpoonManager.shared.removePairing(forKey: slotKey)
-      logger.info("Harpoon:rm successful for slot '\\(slotKey)'")
-      // TODO: Notify user of removal (Task 40a)
+      // Task 40a: Confirmation notification
+      logger.info("Harpoon: Removed pairing for slot '\(slotKey)'.")
     } else {
-      logger.warning("Harpoon:rm: No pairing found for slot '\\(slotKey)'. Nothing removed.")
-      // TODO: Notify user that no pairing existed (Task 40a)
+      // Task 40a: Feedback for non-existent pairing
+      logger.warning("Harpoon: No pairing found for slot '\(slotKey)'.")
     }
   }
 
   private func handleHarpoonGo(slotKey: String) {
-    logger.debug("Executing harpoon:go for slot '\\(slotKey)'")
+    logger.debug("Executing harpoon:go for slot '\(slotKey)'")
     guard let bundleIdentifier = HarpoonManager.shared.getPairing(forKey: slotKey) else {
-      logger.warning("Harpoon:go failed: No pairing found for slot '\\(slotKey)'.")
-      // TODO: Notify user (Task 40a)
+      // Task 40a: Feedback for non-existent pairing
+      logger.warning("Harpoon: No pairing found for slot '\(slotKey)'.")
       return
     }
 
-    logger.info(
-      "Harpoon:go attempting to launch/activate '\\(bundleIdentifier)' for slot '\\(slotKey)'.")
+    logger.info("Harpoon: Attempting to activate slot '\(slotKey)' ('\(bundleIdentifier)').")
 
-    // Fix: Revert to using open() with URL and OpenConfiguration
     guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
     else {
+      // Task 40b: Error notification (could potentially happen if app was uninstalled)
       logger.error(
-        "Harpoon:go failed: Could not find application URL for bundle identifier '\\(bundleIdentifier)'."
+        "Harpoon Error: Could not find application URL for bundle identifier '\(bundleIdentifier)' (paired with slot '\(slotKey)')."
       )
-      // TODO: Notify user (Task 40b)
       return
     }
 
@@ -249,44 +244,30 @@ class ActionExecutor {
     NSWorkspace.shared.open(appURL, configuration: configuration) {
       runningApp, error in
       if let error = error {
+        let appName = runningApp?.localizedName ?? bundleIdentifier
+        // Task 40b: Error notification
         self.logger.error(
-          "Harpoon:go failed to open/activate application '\\(bundleIdentifier)': \\(error.localizedDescription)"
+          "Harpoon Error: Failed to activate '\(appName)' for slot '\(slotKey)': \(error.localizedDescription)"
         )
-        // TODO: Notify user (Task 40b)
       } else if let app = runningApp {
+        // No success notification needed per AC, app appearing is feedback
         self.logger.info(
-          "Harpoon:go successfully opened/activated application '\\(app.localizedName ?? bundleIdentifier)'"
+          "Harpoon: Successfully activated '\(app.localizedName ?? bundleIdentifier)' for slot '\(slotKey)'."
         )
-        // Success notification might be redundant as app appears
       } else {
-        // Should not happen if error is nil, but handle defensively
+        // Task 40b: Error notification
         self.logger.error(
-          "Harpoon:go: Unknown error opening/activating application '\\(bundleIdentifier)'")
-        // TODO: Notify user (Task 40b)
+          "Harpoon Error: Unknown error activating application for slot '\(slotKey)' ('\(bundleIdentifier)')."
+        )
       }
     }
-
-    // Remove the incorrect launchApplication attempt
-    /*
-    do {
-        let runningApp = try NSWorkspace.shared.launchApplication(
-            withBundleIdentifier: bundleIdentifier,
-            options: [.activateIgnoringOtherApps] // Ensure it comes to front
-            // No configuration or completion handler for launchApplication
-        )
-        self.logger.info("Harpoon:go successfully launched/activated application '\\(runningApp.localizedName ?? bundleIdentifier)'")
-    } catch {
-        self.logger.error("Harpoon:go failed to launch/activate application '\\(bundleIdentifier)': \\(error.localizedDescription)")
-        // TODO: Notify user (Task 40b)
-    }
-    */
   }
 
   private func handleHarpoonReset() {
     logger.debug("Executing harpoon:reset")
     HarpoonManager.shared.clearAllPairings()
-    logger.info("Harpoon:reset successful. All pairings cleared.")
-    // TODO: Notify user (Task 40a)
+    // Task 40a: Confirmation notification
+    logger.info("Harpoon: All pairings reset.")
   }
 
   // MARK: - Existing Debug Handler (No changes needed below)
