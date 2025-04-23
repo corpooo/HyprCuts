@@ -8,8 +8,10 @@
 import AppKit  // Needed for NSEvent
 import CoreGraphics
 import Foundation
+import SwiftUI  // Add this import for ObservableObject
 
-class KeyboardMonitor {
+// Conform to ObservableObject
+class KeyboardMonitor: ObservableObject {
 
   // MARK: - Constants
   // Define the modifier flags we care about for matching sequences
@@ -34,7 +36,7 @@ class KeyboardMonitor {
   private var configuredTapTimeoutMs: Int = 200  // Default to 200ms initially
 
   // State for Tap vs Hold detection
-  private var isMasterKeyDown = false  // True ONLY if master key is confirmed HELD
+  @Published var isMasterKeyDown = false  // Publish this state
   // Store info about the initial down event to replay on tap
   private var pendingMasterKeyDownCode: CGKeyCode? = nil
   private var pendingMasterKeyDownFlags: CGEventFlags? = nil
@@ -45,12 +47,15 @@ class KeyboardMonitor {
   // MARK: - v2 Sequence State
   private var rootBindings: [String: BindingNode]? = nil  // Store the root of the bindings tree
   private var currentBindingNode: BindingNode? = nil  // Current node in the binding tree (nil = root)
-  private var currentBindingPath: [String] = []  // Path taken to reach currentBindingNode
+  @Published var currentBindingPath: [String] = []  // Publish this state
 
   // TODO: Replace with actual value from config loading (Task 10)
   // private var tapTimeoutMs: Int = 200  // Milliseconds to differentiate tap/hold
 
   // TODO: Add delegate/callback for sequence detection
+
+  // MARK: - Callbacks
+  var onSequenceCompleted: (([String]) -> Void)?  // Callback for successful sequence completion
 
   init(actionExecutor: ActionExecutor) {
     self.actionExecutor = actionExecutor
@@ -190,6 +195,14 @@ class KeyboardMonitor {
               // Clear stored info
               mySelf.pendingMasterKeyDownCode = nil
               mySelf.pendingMasterKeyDownFlags = nil
+
+              // Reset v2 sequence state if tap occurs unexpectedly during processing
+              // This also ensures the published path is cleared
+              mySelf.resetSequenceStateInternal()
+
+              // Suppress the original keyUp event in the callback, as we manually synthesized it.
+              // print("Suppressing original Master key UP event callback for TAP.")
+              return nil
             } else {
               // print("Warning: Master key TAP detected, but no stored key code or event tap found to replay.")
             }
@@ -200,15 +213,16 @@ class KeyboardMonitor {
           } else if mySelf.isMasterKeyDown {
             // KeyUp happened *after* the timer fired - it's the end of a HOLD
             // print("Master key HELD released.")
-            mySelf.isMasterKeyDown = false  // No longer held
+            mySelf.isMasterKeyDown = false  // No longer held <-- Update published state
             print("DEBUG: Master key released (Hold ended). Resetting sequence state.")
             // Clear stored info
             mySelf.pendingMasterKeyDownCode = nil
             mySelf.pendingMasterKeyDownFlags = nil
 
             // Reset v2 sequence state on master key release
-            mySelf.resetSequenceStateInternal()
+            mySelf.resetSequenceStateInternal()  // <-- This clears the published path
 
+            // We still suppress the original master key up event
             return nil
           } else {
             // Master key was not held or being processed (e.g., keyUp without prior keyDown?). Let it pass.
@@ -325,18 +339,19 @@ class KeyboardMonitor {
 
   /// Called when the configuration has potentially changed.
   @objc private func masterKeyHeldTimerFired(_ timer: Timer) {
-    // Timer fired, meaning the key was held down long enough
+    print("DEBUG: Master key HELD timer fired.")
     masterKeyHeldTimer = nil  // Timer is non-repeating
     if isMasterKeyHeldProcessing {
-      // print("Master key HELD confirmed.")
-      isMasterKeyDown = true  // Set the state to indicate master key is officially held
-      isMasterKeyHeldProcessing = false  // Done with initial processing
-
-      // Reset v2 sequence state if tap occurs unexpectedly during processing
-      resetSequenceStateInternal()
-
-      // Since the original keyDown was suppressed, we don't need to do anything else here.
-      // The subsequent key events will be handled based on isMasterKeyDown.
+      print("DEBUG: Master key confirmed HELD.")
+      isMasterKeyDown = true  // <-- Update published property
+      isMasterKeyHeldProcessing = false
+      // Initial sequence state is root (empty path) when hold starts
+      // Do NOT reset here, the sequence starts *after* the hold is confirmed
+      // resetSequenceStateInternal() // <-- Remove reset here
+    } else {
+      print(
+        "DEBUG: Timer fired, but master key processing was already finished (likely KeyUp occurred)."
+      )
     }
   }
 
@@ -358,9 +373,12 @@ class KeyboardMonitor {
   }
 
   private func resetSequenceStateInternal() {
-    currentBindingNode = nil
-    currentBindingPath = []
-    print("DEBUG: Sequence state reset.")
+    print("DEBUG: Resetting sequence state. Path cleared.")
+    // Only update if the path is not already empty to avoid unnecessary publishes
+    if !currentBindingPath.isEmpty {
+      currentBindingPath = []  // <-- Update published property
+    }
+    currentBindingNode = nil  // Reset to root context
   }
 
   private func keyStringFromEvent(_ event: CGEvent) -> String? {
@@ -466,24 +484,32 @@ class KeyboardMonitor {
       if let action = action {
         print("DEBUG: Found action at leaf node: \(action)")
         if let hyprAction = action.hyprCutAction {
+          // Signal completion *before* executing and resetting
+          // Pass a copy of the path as it is *right now*
+          print("DEBUG: Signaling sequence completion for path: \(currentBindingPath)")
+          onSequenceCompleted?(currentBindingPath)
+
           actionExecutor.execute(action: hyprAction)
-          // Action executed, revert state (AC2.4a)
+
+          // Reset state immediately now that we've signaled
           revertToParentNode()
+
         } else {
           print("WARN: Could not convert config Action to executable HyprCutAction.")
-          // Decide if state should revert even if action conversion fails
+          // If action conversion fails, maybe don't signal completion?
+          // Or signal and let UI decide? For now, let's just reset.
           revertToParentNode()
         }
       } else {
         // Leaf node with no action defined (AC2.4b)
         print("DEBUG: Found leaf node with no action.")
+        // No action, so don't signal completion. Just revert.
         revertToParentNode()
       }
     case .branch:
       // Branch node, do nothing, wait for next key (AC2.4c)
       print("DEBUG: Reached branch node. Waiting for next key.")
-      // TODO: Update notification with current path if enabled (AC4.3)
-      break  // Explicitly do nothing
+      break
     }
   }
 

@@ -125,6 +125,53 @@ struct KeyMapping {
         }
     }()
 
+    // New map for UI display symbols/strings
+    static let keyDisplayMap: [String: String] = [
+        // Modifiers
+        "cmd": "⌘", "lcmd": "⌘", "rcmd": "⌘", "command": "⌘",
+        "shift": "⇧", "lshift": "⇧", "rshift": "⇧",
+        "opt": "⌥", "lopt": "⌥", "ropt": "⌥", "option": "⌥", "alt": "⌥",
+        "ctrl": "⌃", "lctrl": "⌃", "rctrl": "⌃", "control": "⌃",
+        "caps": "⇪", "capslock": "⇪",
+        "fn": "fn",
+
+        // Special Keys
+        "return": "↩", "enter": "↩", "kpenter": "↩",
+        "tab": "⇥",
+        "space": "␣", "spc": "␣",
+        "escape": "esc", "esc": "esc",
+        "delete": "⌫", "backspace": "⌫",
+        "forwarddelete": "⌦", "del": "⌦",
+        "home": "↖",
+        "end": "↘",
+        "pageup": "⇞", "pgup": "⇞",
+        "pagedown": "⇟", "pgdn": "⇟",
+
+        // Arrows
+        "left": "←", "leftArrow": "←",
+        "right": "→", "rightArrow": "→",
+        "up": "↑", "upArrow": "↑",
+        "down": "↓", "downArrow": "↓",
+
+        // Symbols (can keep short versions)
+        "period": ".",
+        "comma": ",",
+        "slash": "/",
+        "backslash": "\\",
+        "semicolon": ";",
+        "quote": "'",
+        "leftbracket": "[",
+        "rightbracket": "]",
+        "grave": "`",
+        "minus": "-",
+        "equal": "=",
+
+            // Default to uppercase for letters if no specific symbol
+            // Function Keys (F1, F2...)
+            // Numbers (0-9)
+            // We can rely on the default uppercasing logic in the View for these
+    ]
+
     // Helper to get KeyCode from string
     static func getKeyCode(for string: String) -> CGKeyCode? {
         return stringToKeyCodeMap[string.lowercased()]  // Use lowercase for case-insensitivity
@@ -146,6 +193,26 @@ struct KeyMapping {
         }
         // Add specific fallbacks if needed, though the map should cover most keys defined above.
         return nil
+    }
+
+    // Helper to get display string (symbol or formatted key name)
+    static func getDisplayString(for keyString: String) -> String {
+        let lowercasedKey = keyString.lowercased()
+        // Check the explicit display map first
+        if let symbol = keyDisplayMap[lowercasedKey] {
+            return symbol
+        }
+        // If not found, return the original string, perhaps capitalized nicely
+        // (e.g., ensure F-keys are uppercase)
+        if lowercasedKey.starts(with: "f") && Int(lowercasedKey.dropFirst()) != nil {
+            return lowercasedKey.uppercased()  // F1, F2...
+        }
+        // Default to uppercasing letters, leave others as is
+        if lowercasedKey.count == 1 && lowercasedKey >= "a" && lowercasedKey <= "z" {
+            return lowercasedKey.uppercased()
+        }
+        // Return original if no specific rule applies
+        return keyString
     }
 
     // Parses a key binding string (e.g., "cmd+shift+k", "f", "lctrl+return")

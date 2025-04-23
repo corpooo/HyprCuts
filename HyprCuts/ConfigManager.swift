@@ -5,6 +5,7 @@
 //  Created by Andrei Corpodeanu on 17.04.2025.
 //
 
+import Combine  // Needed for ObservableObject
 import CoreGraphics  // Import for CGKeyCode and CGEventFlags
 import Foundation
 import Yams  // Make sure Yams is added via SPM
@@ -123,8 +124,16 @@ enum Action: Decodable {
   }
 }
 
-class ConfigManager {
+// MARK: - Config Manager Class
+
+class ConfigManager: ObservableObject {  // Conform to ObservableObject
   static let shared = ConfigManager()
+
+  // Notification posted when config is successfully reloaded
+  static let configReloadedNotification = Notification.Name("ConfigManager.configReloaded")
+
+  // Published property for the notification setting (Task 28a)
+  @Published private(set) var showSequenceNotification: Bool = false
 
   private(set) var currentConfig: AppConfig?  // Stores the loaded config
 
@@ -195,8 +204,15 @@ class ConfigManager {
 
       // If all validation passes, store the config
       self.currentConfig = config
+      // Update the published property (needs to be on main thread if UI observing directly)
+      // Using DispatchQueue.main.async ensures safety if accessed from background thread
+      DispatchQueue.main.async {
+        self.showSequenceNotification = config.showSequenceNotification
+      }
 
-      print("SUCCESS: Configuration loaded and parsed.")
+      print(
+        "SUCCESS: Configuration loaded and parsed. showSequenceNotification set to: \(config.showSequenceNotification)"
+      )
 
       // TODO: Add more validation as needed
 
@@ -229,20 +245,43 @@ class ConfigManager {
         print("  Unknown decoding error: \(error.localizedDescription)")
       }
       handleConfigError()  // Use a dedicated function for error state
+      // Ensure published property is reset on error
+      DispatchQueue.main.async {
+        self.showSequenceNotification = false
+      }
     } catch {
       print("ERROR: Failed to read config file: \(error.localizedDescription)")  // TODO: Log error (Task 12, 29)
       handleConfigError()  // Use a dedicated function for error state
+      // Ensure published property is reset on error
+      DispatchQueue.main.async {
+        self.showSequenceNotification = false
+      }
     }
   }
 
-  /// Reloads the configuration from the file. (Called by file watcher - Task 11)
+  /// Reloads the configuration from the file. (Called by file watcher or menu action)
   func reloadConfig() {
-    print("INFO: Reloading configuration...")  // TODO: Use proper logging
-    currentConfig = nil  // Clear existing config before reloading
-    loadConfig()
-    // TODO: Notify other components (e.g., KeyboardMonitor) about the config change if necessary
-    // TODO: Check if master key changed and update KeyboardMonitor if needed
-    print("INFO: Config reload finished. Master Key: \(getMasterKey() ?? "Not Set")")
+    print("INFO: Reloading configuration...")
+    // Clear existing config and state before reloading
+    currentConfig = nil
+    // Resetting published value immediately might be better UI experience
+    DispatchQueue.main.async {
+      self.showSequenceNotification = false
+    }
+
+    loadConfig()  // This will load and potentially update showSequenceNotification again
+
+    // Notify observers that the config has been reloaded (successfully or not)
+    // Post notification *after* loadConfig attempts to finish
+    // Post on main thread for UI observers
+    DispatchQueue.main.async {
+      NotificationCenter.default.post(name: ConfigManager.configReloadedNotification, object: nil)
+      print("Posted configReloadedNotification")
+    }
+
+    print(
+      "INFO: Config reload finished. Master Key: \(getMasterKey() ?? "Not Set"), Show Notification: \(showSequenceNotification)"
+    )
   }
 
   // MARK: - Validation Helpers
@@ -271,6 +310,13 @@ class ConfigManager {
 
   /// Returns the configured master key. (Task 10)
   func getMasterKey() -> String? {
+    return currentConfig?.masterKey
+  }
+
+  // Added for UI display consistency (Task 27d)
+  func getMasterKeyDisplayString() -> String? {
+    // Simple implementation, could be enhanced later if needed
+    // e.g., mapping 'lcmd' to '⌘' for display
     return currentConfig?.masterKey
   }
 

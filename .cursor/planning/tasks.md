@@ -20,6 +20,7 @@ This list tracks the implementation tasks derived from the v2 Acceptance Criteri
 - [x] **9** **(v1 AC2.2)** Ensure HyprCuts does _not_ create the config file automatically.
 - [x] **10** **(v2 AC1.1, v2 AC1.2, v2 AC1.4)** Define and parse the YAML structure for global settings (`master_key`, `show_sequence_notification`, `master_key_tap_timeout_ms`) and the **nested `bindings` tree using only object format for actions**.
   - [x] **10a** Add validation to prevent modifier-only keys from being set as `master_key`.
+  - [x] **10b** Implemented parsing and publishing of `show_sequence_notification`.
 - [ ] **11** **(v1 AC6.1)** Implement file monitoring for `config.yaml` and automatic reloading (verify v2 parsing compatibility).
 - [ ] **12** **(v1 AC6.2)** Implement robust error handling for missing/invalid `config.yaml` (disable processing, update menu bar, log errors - verify v2 impact).
 - [x] **13** **(v2 AC1.3, v2 AC5.1)** Remove handling and references to the deprecated `sequence_timeout_ms` setting.
@@ -57,7 +58,7 @@ This list tracks the implementation tasks derived from the v2 Acceptance Criteri
   - [ ] **27d** Display current `master_key`.
   - [ ] **27e** `Quit` function.
 - [ ] **28** **(v2 AC4.3)** Implement/Update toast notification system:
-  - [ ] **28a** Show current valid sequence path (e.g., "O > C") if `show_sequence_notification` is true.
+  - [x] **28a** Show current valid sequence path (e.g., "O > C") if `show_sequence_notification` is true. (Overlay UI implemented)
   - [ ] **28b** Show invalid key feedback (Task 18 related).
   - [ ] **28c** Show action execution failures (Task 24 related).
 - [ ] **29** **(v1 AC6.2, v1 AC7.2)** Implement menu bar icon state changes for configuration errors or missing permissions.

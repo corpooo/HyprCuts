@@ -1,4 +1,5 @@
 import ApplicationServices  // Import for Accessibility APIs
+import Combine  // Needed for Combine subscriptions
 import CoreGraphics
 import SwiftUI
 
@@ -17,20 +18,16 @@ struct HyprCutsApp: App {
         }
     }
 
-    private var popover: NSPopover?
-
-    // MARK: - Dependencies
-    private var keyboardMonitor: KeyboardMonitor?
-    private var permissionPollTimer: Timer?
-
-    // MARK: - State
-    private var hasAccessibilityPermissions: Bool = false
-    private var isWaitingForPermissions: Bool = false
+    // Removed unused properties from here, they belong in AppDelegate if needed
+    // private var popover: NSPopover?
+    // private var keyboardMonitor: KeyboardMonitor?
+    // private var permissionPollTimer: Timer?
+    // private var hasAccessibilityPermissions: Bool = false
+    // private var isWaitingForPermissions: Bool = false
 }
 
-// Create the AppDelegate class
+// MARK: - Application Delegate
 class AppDelegate: NSObject, NSApplicationDelegate {
-
     // Strong reference to the status bar item
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?  // Keep track of the menu
@@ -38,37 +35,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Dependencies
     private var keyboardMonitor: KeyboardMonitor?
     private var permissionPollTimer: Timer?
-    private var actionExecutor: ActionExecutor?  // Added ActionExecutor instance
+    private var actionExecutor: ActionExecutor?  // Keep this
+    private var configManager = ConfigManager.shared  // Keep reference if needed often
+
+    // Add property for the notification controller
+    private var sequenceNotificationController: SequenceNotificationController?
 
     // MARK: - State
     private var hasAccessibilityPermissions: Bool = false
     private var isWaitingForPermissions: Bool = false
+    private var isEnabled: Bool = true  // Track enabled state for menu
 
     // MARK: - NSApplicationDelegate Methods
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("HyprCuts App finished launching!")
-
-        // Initialize Config Manager (loads initial config)
-        _ = ConfigManager.shared  // Access singleton to trigger init and initial load
 
         checkAccessibilityPermissions()
 
         // Initialize Action Executor
         actionExecutor = ActionExecutor()
 
-        setupMenuBar()
-        // setupEventTap() // <-- Removed: Now handled by KeyboardMonitor
+        setupMenuBar()  // Setup initial menu bar
 
-        // Initialize Keyboard Monitor only if permissions are initially granted
+        // Initialize Keyboard Monitor and Notification Controller *only if* permissions are granted
         if hasAccessibilityPermissions {
-            initializeAndStartKeyboardMonitor()
+            initializeMonitors()
         } else {
             print("Keyboard Monitor not started. Waiting for Accessibility permissions.")
-            // TODO: Update UI to clearly indicate permissions are needed (Task 28)
+            // The menu bar icon/state will be updated later if needed
         }
+        updateMenuBarState()  // Initial update based on state
 
-        // TODO: Add logic to update menu bar state based on permissions (Task 28)
-        // TODO: Add logic to prompt user if permissions are missing (Task 4)
+        // Register for config reloaded notifications to update menu
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(configDidReload),
+            name: ConfigManager.configReloadedNotification,
+            object: nil
+        )
     }
 
     // Called when the app becomes active (e.g., returning from System Settings)
@@ -84,24 +88,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         keyboardMonitor?.stop()
         // Stop the timer if it's running
         permissionPollTimer?.invalidate()
-        // TODO: Perform any necessary cleanup
+        // Clean up notification controller
+        sequenceNotificationController = nil  // This will trigger deinit
+        // Remove observer
+        NotificationCenter.default.removeObserver(
+            self, name: ConfigManager.configReloadedNotification, object: nil)
     }
 
     // MARK: - Initialization Helpers
-    private func initializeAndStartKeyboardMonitor() {
+    // Renamed for clarity
+    private func initializeMonitors() {
         guard keyboardMonitor == nil else {
-            print("Keyboard Monitor already initialized.")
+            print("Monitors already initialized.")
             return
         }
-        print("Initializing and starting Keyboard Monitor...")
+        guard hasAccessibilityPermissions else {
+            print("Cannot initialize monitors without Accessibility permissions.")
+            return
+        }
+        print("Initializing Monitors...")
+
         // Ensure we have an actionExecutor instance
         guard let executor = self.actionExecutor else {
             print("ERROR: ActionExecutor not initialized before KeyboardMonitor.")
-            // TODO: Handle this error state more robustly
             return
         }
-        keyboardMonitor = KeyboardMonitor(actionExecutor: executor)  // Pass ActionExecutor
-        keyboardMonitor?.start()
+
+        // Init KeyboardMonitor
+        print("Initializing Keyboard Monitor...")
+        let monitor = KeyboardMonitor(actionExecutor: executor)
+        self.keyboardMonitor = monitor
+
+        // Init Notification Controller AFTER monitor is created
+        print("Initializing Sequence Notification Controller...")
+        self.sequenceNotificationController = SequenceNotificationController(
+            keyboardMonitor: monitor)
+
+        // Start KeyboardMonitor AFTER controller is set up
+        print("Starting Keyboard Monitor...")
+        if isEnabled {  // Only start if the app is conceptually enabled
+            monitor.start()
+        } else {
+            print("Keyboard monitor initialized but not started (App is disabled).")
+        }
     }
 
     // MARK: - Accessibility Permissions
@@ -121,14 +150,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             permissionPollTimer?.invalidate()
             permissionPollTimer = nil
 
-            // Start the keyboard monitor if it wasn't already
+            // Start the monitors if they weren't already (this will also init the controller)
             if keyboardMonitor == nil {
-                initializeAndStartKeyboardMonitor()
+                initializeMonitors()
             }
-            // TODO: Update UI to normal state (Task 28)
+            updateMenuBarState()  // Update menu state (icon, items)
 
         } else {
             print("Permissions still not granted.")
+            // Keep polling
         }
     }
 
@@ -172,121 +202,156 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Note: The app might still function partially without permissions,
             // but core features requiring event taps will fail.
         }
+        updateMenuBarState()  // Update menu state after check
     }
 
-    // MARK: - Menu Bar Setup
+    // MARK: - Menu Bar Setup & State
     private func setupMenuBar() {
-        // Create the status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-
-        // Configure the status bar button
         if let button = statusItem?.button {
-            // Use an SF Symbol for the icon (requires macOS 11+)
+            // Set initial icon - updated in updateMenuBarState
             button.image = NSImage(
-                systemSymbolName: "keyboard.fill", accessibilityDescription: "HyprCuts")
-            // Define the action for clicking the button (usually shows the menu)
+                systemSymbolName: "keyboard.slash",
+                accessibilityDescription: "HyprCuts (Requires Permissions)")
             button.action = #selector(statusBarButtonClicked(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])  // Respond to left/right clicks
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self
         }
-
-        // Build the menu
-        constructMenu()
+        constructMenu()  // Build the menu structure
+        statusItem?.menu = menu  // Assign the menu
     }
 
+    // Rebuilds the menu content (titles, states)
     private func constructMenu() {
-        let menu = NSMenu()
+        let menu = self.menu ?? NSMenu()  // Reuse existing menu or create new
+        menu.removeAllItems()  // Clear existing items before rebuilding
 
-        // Example Items (Align with AC5.2)
-        // TODO: Add state tracking for Enable/Disable
-        menu.addItem(
-            NSMenuItem(title: "Enable", action: #selector(toggleEnable(_:)), keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())  // Separator line
+        // --- Enable/Disable Toggle --- (Task 27a)
+        let enableDisableTitle = isEnabled ? "Disable HyprCuts" : "Enable HyprCuts"
+        let enableDisableItem = NSMenuItem(
+            title: enableDisableTitle, action: #selector(toggleEnable(_:)), keyEquivalent: "")
+        enableDisableItem.state = isEnabled ? .on : .off  // Show checkmark when enabled
+        enableDisableItem.isEnabled = hasAccessibilityPermissions  // Can only toggle if permissions OK
+        menu.addItem(enableDisableItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // --- Restart --- (Task 27b)
         menu.addItem(
             NSMenuItem(title: "Restart", action: #selector(restartApp(_:)), keyEquivalent: ""))
-        menu.addItem(
-            NSMenuItem(
-                title: "Reload Config", action: #selector(reloadConfig(_:)), keyEquivalent: ""))
+
+        // --- Reload Config --- (Task 27c)
+        let reloadItem = NSMenuItem(
+            title: "Reload Config", action: #selector(reloadConfig(_:)), keyEquivalent: "")
+        reloadItem.isEnabled = hasAccessibilityPermissions && isEnabled  // Only if enabled & permissions OK
+        menu.addItem(reloadItem)
+
         menu.addItem(NSMenuItem.separator())
-        // TODO: Display actual master key
-        let masterKey = ConfigManager.shared.getMasterKey() ?? "(Not Set)"
+
+        // --- Display Master Key --- (Task 27d)
+        let masterKey = configManager.getMasterKeyDisplayString() ?? "(Not Set)"
         let masterKeyItem = NSMenuItem(
             title: "Master Key: \(masterKey)", action: nil, keyEquivalent: "")
-        masterKeyItem.isEnabled = false  // Display only
+        masterKeyItem.isEnabled = false
         menu.addItem(masterKeyItem)
+
         menu.addItem(NSMenuItem.separator())
+
+        // --- Quit --- (Task 27e)
         menu.addItem(
             NSMenuItem(
                 title: "Quit HyprCuts", action: #selector(NSApplication.terminate(_:)),
                 keyEquivalent: "q"))
 
-        // Assign the menu to the status item
-        statusItem?.menu = menu
+        self.menu = menu  // Store the updated menu
+        statusItem?.menu = menu  // Re-assign to status item if needed
+    }
+
+    // Updates the menu bar icon and rebuilds menu content based on current state
+    private func updateMenuBarState() {
+        DispatchQueue.main.async {  // Ensure UI updates happen on main thread
+            let imageName: String
+            let accessibilityDescription: String
+
+            if !self.hasAccessibilityPermissions {
+                imageName = "keyboard.slash"  // Icon indicating permissions needed
+                accessibilityDescription = "HyprCuts (Requires Permissions)"
+            } else if !self.isEnabled {
+                imageName = "keyboard.badge.ellipsis"  // Icon indicating disabled
+                accessibilityDescription = "HyprCuts (Disabled)"
+            } else {
+                imageName = "keyboard.fill"  // Normal enabled icon
+                accessibilityDescription = "HyprCuts (Enabled)"
+            }
+
+            if let button = self.statusItem?.button {
+                button.image = NSImage(
+                    systemSymbolName: imageName, accessibilityDescription: accessibilityDescription)
+            }
+
+            // Rebuild the menu to reflect the current state (Enable/Disable title, item states)
+            self.constructMenu()
+        }
     }
 
     // Action triggered by clicking the status bar item button
     @objc func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        // The system automatically shows the menu assigned to statusItem.menu
-        // when the button is configured correctly (as it is in setupMenuBar).
-        // So, the popUpMenu call is no longer needed here for standard behavior.
-
-        // --- Optional: Keep this function for advanced behavior ---
-        // You might still need this function if you want to:
-        // 1. Distinguish between left and right clicks:
-        //    if let event = NSApp.currentEvent, event.type == .rightMouseUp {
-        //        print("Right click detected!")
-        //        // Maybe show a different menu or perform a different action?
-        //        // statusItem?.popUpMenu(someOtherMenu)
-        //    } else {
-        //        // For left-click, the default menu assigned to statusItem.menu
-        //        // will usually show automatically *without* needing code here.
-        //        print("Left click detected (default menu should show automatically)")
-        //    }
-        //
-        // 2. Show a Popover instead of a menu:
-        //    // self.togglePopover(sender) // Example function call
-        //
-        // If you only need the default menu on left-click, you could even
-        // potentially remove this action method entirely, *IF* you also remove
-        // the .target and .action assignment in setupMenuBar. However, it's often
-        // useful to keep the action method for future flexibility.
-
-        print("Status bar button clicked. Default menu should appear if set.")  // Optional print for debugging
+        // Default behavior is usually sufficient - the menu assigned will show.
+        print("Status bar button clicked. Default menu should appear if set.")
     }
-    // --- Placeholder Menu Actions ---
 
-    @objc func toggleEnable(_ sender: Any?) {
+    // --- Menu Actions --- (Task 27)
+
+    @objc func toggleEnable(_ sender: NSMenuItem) {
         print("Toggle Enable/Disable action triggered")
-        // TODO: Implement enable/disable logic
-        // TODO: Update menu item title/state (checkmark)
+        isEnabled.toggle()
+        print("HyprCuts is now \(isEnabled ? "Enabled" : "Disabled")")
+
+        if isEnabled {
+            // If enabling, ensure monitors are initialized and started
+            if keyboardMonitor == nil {
+                initializeMonitors()
+            } else {
+                keyboardMonitor?.start()
+            }
+        } else {
+            // If disabling, stop the keyboard monitor
+            keyboardMonitor?.stop()
+        }
+
+        updateMenuBarState()  // Update icon and menu item title/state
     }
 
     @objc func restartApp(_ sender: Any?) {
         print("Restart action triggered")
-        // TODO: Implement restart logic (might involve launching a helper script/task)
-        // A simple way is to terminate and rely on the user/launchd to restart,
-        // or use Process to relaunch the app bundle.
-        let url = URL(fileURLWithPath: Bundle.main.resourcePath!)
+        // Simple restart implementation
+        guard let resourcePath = Bundle.main.resourcePath else { return }
+        let url = URL(fileURLWithPath: resourcePath)
         let path = url.deletingLastPathComponent().deletingLastPathComponent().absoluteString
         let task = Process()
         task.launchPath = "/usr/bin/open"
         task.arguments = [path]
-        task.launch()
-        NSApp.terminate(nil)
-
+        do {
+            try task.run()
+            NSApp.terminate(nil)
+        } catch {
+            print("Error restarting application: \(error)")
+            // TODO: Show error to user?
+        }
     }
 
     @objc func reloadConfig(_ sender: Any?) {
         print("Reload Config action triggered")
-        ConfigManager.shared.reloadConfig()
-        // Rebuild the menu to reflect potential changes (like master key)
-        constructMenu()
-        // Notify keyboard monitor about the potential change
-        keyboardMonitor?.updateConfigValues()
-        print("Config reloaded and menu updated.")
+        configManager.reloadConfig()  // This posts the notification handled below
     }
 
-    // MARK: - Event Tap Setup & Handling
-    // Removed: setupEventTap(), masterKeyHeldTimerFired(_:), postSynthesizedKeyEvent(...)
-    // These are now in KeyboardMonitor.swift
+    // Called when ConfigManager posts notification
+    @objc private func configDidReload() {
+        print("AppDelegate received config reload notification.")
+        // Update keyboard monitor with new config values
+        keyboardMonitor?.updateConfigValues()
+        // Update menu bar state (e.g., master key display)
+        updateMenuBarState()
+        // Sequence notification controller updates via its own observer
+    }
 }
