@@ -25,7 +25,7 @@ This list tracks the implementation tasks derived from the v1 Acceptance Criteri
 
 ## 3. Key Input & Sequence Processing
 
-- [ ] **13** **(AC3.1, AC3.2, AC3.3)** Define and handle standardized string representations for all keys, including modifiers (`lcmd`/`cmd`, `rcmd`, etc.) and special keys (`enter`, `tab`, `f1`, etc.).
+- [x] **13** **(AC3.1, AC3.2, AC3.3)** Define and handle standardized string representations for all keys, including modifiers (`lcmd`/`cmd`, `rcmd`, etc.) and special keys (`enter`, `tab`, `f1`, etc.).
 - [ ] **14** **(AC3.1)** Allow any single key (including modifiers) to be configured as `master_key`.
 - [ ] **15** **(AC3.6)** Allow any defined key (including modifiers) within `keys` arrays.
 - [ ] **16** **(AC3.8)** Implement key sequence timeout logic based on `sequence_timeout_ms` (time between keys in sequence).

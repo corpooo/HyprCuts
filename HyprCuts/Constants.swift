@@ -95,6 +95,10 @@ struct KeyMapping {
         "fn": .maskSecondaryFn, // kVK_Function
     ]
 
+    // Reverse map: CGKeyCode to a primary String representation (for display/logging)
+    // We choose one primary representation (e.g., lowercase letter, full name for special keys)
+    static let keyCodeToStringMap: [CGKeyCode: String] = Dictionary(uniqueKeysWithValues: stringToKeyCodeMap.map { ($1, $0) })
+
     // Helper to get KeyCode from string
     static func getKeyCode(for string: String) -> CGKeyCode? {
         return stringToKeyCodeMap[string.lowercased()] // Use lowercase for case-insensitivity
@@ -105,7 +109,90 @@ struct KeyMapping {
         return stringToFlagsMap[string.lowercased()] // Use lowercase for case-insensitivity
     }
 
+    // Helper to get primary String representation from KeyCode
+    static func getString(for keyCode: CGKeyCode) -> String? {
+        // Prioritize the direct reverse mapping
+        if let primaryString = keyCodeToStringMap[keyCode] {
+            // Handle cases where multiple strings map to the same keycode - return the shortest/most common?
+            // For now, just return the one found in the reversed map.
+            // We might need a more curated map if this isn't sufficient.
+            return primaryString
+        }
+        // Add specific fallbacks if needed, though the map should cover most keys defined above.
+        return nil
+    }
+
+    // Parses a key binding string (e.g., "cmd+shift+k", "f", "lctrl+return")
+    // into its non-modifier key code and the combined modifier flags.
+    // Returns nil if the string is invalid (e.g., multiple non-modifier keys, unknown keys).
+    static func parseBindingKeyCombo(keyString: String) -> (keyCode: CGKeyCode, modifiers: CGEventFlags)? {
+        let parts = keyString.lowercased().split(separator: "+").map(String.init)
+
+        var keyCode: CGKeyCode? = nil
+        var modifiers: CGEventFlags = []
+        var foundNonModifierKey = false
+
+        for part in parts {
+            if let flags = getFlags(for: part) {
+                // It's a modifier
+                modifiers.insert(flags)
+            } else if let code = getKeyCode(for: part) {
+                // It's potentially a non-modifier key OR a specific modifier key like 'lcmd' used as the main key
+                // Check if it's a specific modifier key code that ALSO has flags defined
+                let isSpecificModifierKeyCode = stringToFlagsMap.keys.contains(part)
+
+                if !isSpecificModifierKeyCode {
+                     // This is a standard non-modifier key (a, b, 1, enter, f1, etc.)
+                    if foundNonModifierKey {
+                        // Invalid: multiple non-modifier keys found (e.g., "a+b")
+                        // Logger.log("Error parsing key combo '\(keyString)': Multiple non-modifier keys found.")
+                        return nil
+                    }
+                    keyCode = code
+                    foundNonModifierKey = true
+                } else {
+                    // This is a specific modifier key allowed as the *primary* key in a combo
+                    // e.g. "shift+lcmd" where lcmd is the target key.
+                    // Or it could be ONLY a specific modifier e.g. "lcmd"
+                    if foundNonModifierKey {
+                        // Invalid: A non-modifier key was already found, cannot add a specific modifier as another primary key.
+                        // Logger.log("Error parsing key combo '\(keyString)': Found specific modifier '\(part)' after non-modifier key.")
+                        return nil
+                    }
+                     // If this is the *only* key, treat it as the keyCode
+                     if parts.count == 1 {
+                         keyCode = code
+                         foundNonModifierKey = true // Treat single specific modifier as the 'non-modifier' part for parsing result
+                     } else {
+                         // If part of a combo (e.g., "shift+lcmd"), we already added its flag.
+                         // We need to decide if this specific modifier should be the keyCode.
+                         // Let's assume the *last* specific key encountered is the target if no other non-modifier is found.
+                         // This allows combos like "shift+capslock" where capslock is the key.
+                         keyCode = code // Tentatively set it, might be overwritten by a later *actual* non-modifier
+                     }
+                }
+            } else {
+                // Unknown key part
+                // Logger.log("Error parsing key combo '\(keyString)': Unknown key part '\(part)'.")
+                return nil
+            }
+        }
+
+        // Must have exactly one effective non-modifier key code
+        if let finalKeyCode = keyCode, foundNonModifierKey || parts.count == 1 {
+             // Special case: if the final key code itself represents a modifier (like kVK_Command for lcmd),
+             // ensure its corresponding flag isn't *also* set from the modifier part, unless intended.
+             // Example: "lcmd" -> keyCode=kVK_Command, modifiers=[].
+             // Example: "shift+lcmd" -> keyCode=kVK_Command, modifiers=[.maskShift].
+             // This seems correct as is.
+            return (keyCode: finalKeyCode, modifiers: modifiers)
+        } else {
+            // Invalid: No non-modifier key found (e.g., "cmd+shift") or logic error
+            // Logger.log("Error parsing key combo '\(keyString)': No valid non-modifier key found.")
+            return nil
+        }
+    }
+
     // TODO: Need a function to convert a config string into *either* a KeyCode or Flags,
-    //       as the master key could be either type.
-    // TODO: Consider adding reverse mapping (KeyCode -> String) if needed for display/logging.
+    //       as the master key could be either type. --> This seems resolved by using getKeyCode and validation elsewhere.
 }

@@ -33,6 +33,9 @@ struct Binding: Decodable {
   let keys: [String]
   let action: Action
   let description: String?  // Optional description
+
+  // Add a property to store the parsed key sequence after decoding
+  var parsedKeys: [(keyCode: CGKeyCode, modifiers: CGEventFlags)]? = nil
 }
 
 enum Action: Decodable {
@@ -117,19 +120,43 @@ class ConfigManager {
 
       // Parse YAML content using Yams (Task 10)
       let decoder = YAMLDecoder()
-      let config = try decoder.decode(AppConfig.self, from: configContent)
+      var config = try decoder.decode(AppConfig.self, from: configContent)
 
       // Validate parsed config (Task 10a)
-      guard !isModifierOnly(key: config.masterKey) else {
-        print(
-          "ERROR: Invalid configuration: 'master_key' cannot be a modifier-only key (Cmd, Shift, Opt, Ctrl, Caps, Fn). Found: \(config.masterKey)"
-        )
-        // TODO: Log specific validation error (Task 12, 29)
-        handleConfigError()
-        return
+      guard let masterKeyCode = KeyMapping.getKeyCode(for: config.masterKey) else {
+          print(
+            "ERROR: Invalid configuration: 'master_key' ('\(config.masterKey)') does not correspond to a known key code."
+          )
+          handleConfigError()
+          return
+      }
+      // AC3.2 validation: Ensure master_key is not a generic modifier represented by flags only.
+      if KeyMapping.getFlags(for: config.masterKey) != nil && KeyMapping.stringToKeyCodeMap[config.masterKey.lowercased()] == nil {
+           print(
+             "ERROR: Invalid configuration: 'master_key' ('\(config.masterKey)') cannot be a generic modifier key name (like cmd, shift, opt, ctrl). Use specific keys like lcmd, rshift, etc. if needed, or a non-modifier key."
+           )
+           handleConfigError()
+           return
+      }
+      // Further master key validation (e.g. against problematic keys) could go here (Task 19)
+
+      // Parse and validate key bindings (Task 13 integration)
+      for i in 0..<config.bindings.count {
+          var parsedSequence: [(keyCode: CGKeyCode, modifiers: CGEventFlags)] = []
+          for keyString in config.bindings[i].keys {
+              guard let parsedKey = KeyMapping.parseBindingKeyCombo(keyString: keyString) else {
+                  print("ERROR: Invalid key sequence in binding #\(i+1) ('\(config.bindings[i].description ?? "No description")'): Could not parse key '\(keyString)'.")
+                  // TODO: Log error properly (Task 12, 29)
+                  handleConfigError() // Invalidate the whole config for now
+                  return
+              }
+              parsedSequence.append(parsedKey)
+          }
+          // Assign the successfully parsed sequence to the binding
+          config.bindings[i].parsedKeys = parsedSequence
       }
 
-      // If validation passes, store the config
+      // If all validation passes, store the config
       self.currentConfig = config
 
       print("SUCCESS: Configuration loaded and parsed.")
@@ -160,17 +187,13 @@ class ConfigManager {
   // MARK: - Validation Helpers
 
   private func isModifierOnly(key: String) -> Bool {
-    // Based on AC3.2 standard abbreviations
-    let modifierKeys: Set<String> = [
-      "lcmd", "rcmd", "cmd",  // Allow "cmd" as shorthand?
-      "lshift", "rshift", "shift",
-      "lopt", "ropt", "opt",
-      "lctrl", "rctrl", "ctrl",
-      "caps",  // Caps Lock
-      "fn",  // Function key
-    ]
-    // Consider case-insensitivity? For now, assume exact match from config.
-    return modifierKeys.contains(key)
+    // Check if the key exists *only* in the flags map and *not* in the keycode map.
+    // This identifies generic modifiers like "cmd", "shift", etc.
+    // Specific modifiers like "lcmd", "capslock" have both keycodes and flags, so they are allowed.
+    let lowercasedKey = key.lowercased()
+    let hasFlags = KeyMapping.stringToFlagsMap[lowercasedKey] != nil
+    let hasKeyCode = KeyMapping.stringToKeyCodeMap[lowercasedKey] != nil
+    return hasFlags && !hasKeyCode // It's a modifier-only string if it has flags but no direct keycode
   }
 
   // MARK: - Error Handling Helper
