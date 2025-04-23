@@ -34,7 +34,6 @@ struct KeyMapping {
         "9": CGKeyCode(kVK_ANSI_9),
 
         // Symbols (Common)
-        "!": CGKeyCode(kVK_ANSI_1),
         "space": CGKeyCode(kVK_Space), "spc": CGKeyCode(kVK_Space),
         "period": CGKeyCode(kVK_ANSI_Period), ".": CGKeyCode(kVK_ANSI_Period),
         "dot": CGKeyCode(kVK_ANSI_Period),

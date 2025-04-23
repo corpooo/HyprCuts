@@ -69,3 +69,34 @@ This list tracks the implementation tasks derived from the v2 Acceptance Criteri
 - [ ] **31** **(v1 AC6.4)** Set up logging to `~/Library/Logs/HyprCuts/HyprCuts.log`.
 - [ ] **32** Ensure relevant events are logged (config errors, action failures, invalid keys, sequence resets etc.).
 - [ ] **33** **(v2 AC5.3)** Update documentation (README, comments) to reflect v2 schema and behavior.
+
+## 7. Harpoon Feature (AC: acceptance-criteria-harpoon.md)
+
+- [ ] **34** Create `HarpoonManager` class to manage pairings state (load, save, get, set, remove, clear).
+  - [ ] **34a** Implement loading pairings from `~/.config/hyprcuts/harpoon_state.json` on startup.
+  - [ ] **34b** Implement saving pairings to `~/.config/hyprcuts/harpoon_state.json` upon modification.
+  - [ ] **34c** Implement robust error handling for file I/O operations (load/save).
+- [ ] **35** Extend Action parsing (`Action.swift`, `ConfigManager.swift`) to recognize `harpoon:set`, `harpoon:rm`, `harpoon:go`, `harpoon:reset` types at leaf nodes.
+  - [ ] **35a** Ensure the final key sequence component (the slot key) is captured and passed along with the action.
+- [ ] **36** Implement `harpoon:set` action execution logic in `ActionExecutor`.
+  - [ ] **36a** Get frontmost application's bundle identifier.
+  - [ ] **36b** Call `HarpoonManager` to store the pairing (slot key + bundle ID).
+  - [ ] **36c** Handle errors when getting app/bundle ID.
+- [ ] **37** Implement `harpoon:rm` action execution logic in `ActionExecutor`.
+  - [ ] **37a** Call `HarpoonManager` to remove the pairing for the given slot key.
+- [ ] **38** Implement `harpoon:go` action execution logic in `ActionExecutor`.
+  - [ ] **38a** Call `HarpoonManager` to retrieve the bundle ID for the slot key.
+  - [ ] **38b** Implement application launching (if not running) and activation (bring to front) using `NSWorkspace`.
+  - [ ] **38c** Handle cases where no pairing exists for the slot key.
+  - [ ] **38d** Handle errors during app launch/activation.
+- [ ] **39** Implement `harpoon:reset` action execution logic in `ActionExecutor`.
+  - [ ] **39a** Call `HarpoonManager` to clear all pairings.
+- [ ] **40** Integrate Harpoon actions with the notification system (`SequenceNotificationController`?):
+  - [ ] **40a** Display confirmation/feedback notifications for `set`, `rm`, `go` (no pairing), `reset`.
+  - [ ] **40b** Display error notifications (bundle ID error, launch/activate error, I/O error).
+- [ ] **41** Implement Menu Bar integration in `AppDelegate`:
+  - [ ] **41a** Add a dynamic "Harpoon Pairings" section to the menu.
+  - [ ] **41b** Fetch pairings from `HarpoonManager`.
+  - [ ] **41c** Display pairings as "Slot 'X': AppName" (resolve App Name from Bundle ID).
+  - [ ] **41d** Show "(None)" message if no pairings exist.
+  - [ ] **41e** Ensure the menu updates automatically when pairings change.
