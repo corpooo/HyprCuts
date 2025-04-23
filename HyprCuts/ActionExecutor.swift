@@ -8,11 +8,11 @@
 import AppKit  // Needed for NSEvent
 import Foundation
 
-// Updated enum to match config action types
+// Make enum internal (default access level) so it's accessible from ConfigManager
 enum HyprCutAction {
   case openApp(target: String)
   case runShellCommand(command: String)
-  case typeKeys(keysString: String)  // Using comma-separated string for now
+  case typeKeys(keys: [String])
   case debugPrintKeyEvent(event: NSEvent)  // Keeping debug action
 }
 
@@ -24,8 +24,8 @@ class ActionExecutor {
       handleOpenApp(target: target)
     case .runShellCommand(let command):
       handleRunShellCommand(command: command)
-    case .typeKeys(let keysString):
-      handleTypeKeys(keysString: keysString)
+    case .typeKeys(let keys):
+      handleTypeKeys(keys: keys)
     case .debugPrintKeyEvent(let event):
       handleDebugPrintKeyEvent(event: event)
     }
@@ -34,19 +34,125 @@ class ActionExecutor {
   // MARK: - Mock Action Handlers
 
   private func handleOpenApp(target: String) {
-    print("ActionExecutor [Mock]: Executing openApp with target='\(target)'")
+    // print("ActionExecutor [Mock]: Executing openApp with target='\(target)'")
     // Actual implementation will involve NSWorkspace
+    let workspace = NSWorkspace.shared
+    var appURL: URL?
+
+    // Try interpreting the target as a full path first
+    if target.hasPrefix("/") && FileManager.default.fileExists(atPath: target) {
+      appURL = URL(fileURLWithPath: target)
+    }
+    // Try finding by bundle identifier
+    else if target.contains(".") {  // Basic check for bundle ID format
+      appURL = workspace.urlForApplication(withBundleIdentifier: target)
+    }
+
+    // If not found by bundle ID or path, try searching standard Application folders by name
+    if appURL == nil {
+      let fileManager = FileManager.default
+      let appFolders = [
+        "/Applications",
+        (FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications"))
+          .path,
+      ]
+
+      let appNameWithExtension = target.hasSuffix(".app") ? target : target + ".app"
+
+      for folderPath in appFolders {
+        let potentialPath = (folderPath as NSString).appendingPathComponent(appNameWithExtension)
+        if fileManager.fileExists(atPath: potentialPath) {
+          appURL = URL(fileURLWithPath: potentialPath)
+          print("ActionExecutor: Found '\(appNameWithExtension)' in '\(folderPath)'")
+          break  // Found it, stop searching
+        }
+      }
+    }
+    // Removed deprecated name lookup using fullPath(forApplication:)
+    // Lookup now requires full path or bundle identifier.
+    // if appURL == nil {
+    //     if let path = workspace.fullPath(forApplication: target) {
+    //          appURL = URL(fileURLWithPath: path)
+    //     }
+    // }
+
+    guard let finalURL = appURL else {
+      print(
+        "ActionExecutor [Error]: Could not find application specified by target '\(target)'. Please use a full path or bundle identifier."
+      )  // Updated error message
+      // TODO: Implement user-facing error notification (Task 24, 27c)
+      return
+    }
+
+    // Launch the application. `.prominent` brings it to the front.
+    // Add `.newInstance` if you always want a new instance (less common).
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.activates = true  // Equivalent to prominent
+    // configuration.addsToRecentItems = false // Optional: prevent adding to Recents
+
+    workspace.openApplication(at: finalURL, configuration: configuration) {
+      runningApplication, error in
+      if let error = error {
+        print(
+          "ActionExecutor [Error]: Failed to launch or activate application '\(target)': \(error.localizedDescription)"
+        )
+        // TODO: Implement user-facing error notification (Task 24, 27c)
+      } else {
+        print("ActionExecutor: Successfully launched or activated application '\(target)'")
+      }
+    }
   }
 
   private func handleRunShellCommand(command: String) {
-    print("ActionExecutor [Mock]: Executing shellCommand with command='\(command)'")
+    // print("ActionExecutor [Mock]: Executing shellCommand with command='\(command)'")
     // Actual implementation will involve Process
+    print("ActionExecutor: Executing shell command '\(command)'")
+
+    let task = Process()
+    // Use zsh, common default shell. Could use /bin/sh for wider compatibility if needed.
+    task.launchPath = "/bin/zsh"
+    task.arguments = ["-c", command]  // -c tells the shell to execute the command string
+
+    // Optional: Capture output/error streams if needed later
+    // let outputPipe = Pipe()
+    // let errorPipe = Pipe()
+    // task.standardOutput = outputPipe
+    // task.standardError = errorPipe
+
+    do {
+      try task.run()  // Executes synchronously
+      task.waitUntilExit()  // Wait for the process to finish
+
+      // Check termination status
+      if task.terminationStatus == 0 {
+        print("ActionExecutor: Shell command completed successfully.")
+        // Read output if captured:
+        // let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        // if let outputString = String(data: outputData, encoding: .utf8), !outputString.isEmpty {
+        //     print("Shell Output: \(outputString)")
+        // }
+      } else {
+        print("ActionExecutor [Error]: Shell command failed with status \(task.terminationStatus).")
+        // Read error output if captured:
+        // let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        // if let errorString = String(data: errorData, encoding: .utf8), !errorString.isEmpty {
+        //     print("Shell Error Output: \(errorString)")
+        // }
+        // TODO: Implement user-facing error notification (Task 24, 27c)
+      }
+    } catch {
+      print(
+        "ActionExecutor [Error]: Failed to run shell command '\(command)'. Error: \(error.localizedDescription)"
+      )
+      // TODO: Implement user-facing error notification (Task 24, 27c)
+    }
   }
 
-  private func handleTypeKeys(keysString: String) {
-    // We'll need to parse the keysString back into an array later
-    print("ActionExecutor [Mock]: Executing typeKeys with keys='\(keysString)'")
-    // Actual implementation will involve CGEvent posting
+  private func handleTypeKeys(keys: [String]) {
+    // Print the strings directly for the mock
+    let keysDescription = keys.joined(separator: ", ")  // Simpler join for strings
+    print("ActionExecutor [Mock]: Executing typeKeys with keys=[\(keysDescription)]")
+    // Actual implementation will involve CGEvent posting and parsing these strings
   }
 
   // MARK: - Existing Debug Handler (No changes needed below)

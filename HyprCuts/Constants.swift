@@ -5,9 +5,12 @@
 //  Created by Andrei Corpodeanu on 17.04.2025.
 //
 
+import Carbon.HIToolbox  // For kVK_ constants
+import CoreGraphics  // For CGKeyCode, CGEventFlags
 import Foundation
-import Carbon.HIToolbox // For kVK_ constants
-import CoreGraphics     // For CGKeyCode, CGEventFlags
+
+// Define the type alias for parsed key combos
+typealias ParsedKey = (keyCode: CGKeyCode, modifiers: CGEventFlags)
 
 struct KeyMapping {
 
@@ -31,27 +34,41 @@ struct KeyMapping {
         "9": CGKeyCode(kVK_ANSI_9),
 
         // Symbols (Common)
+        "!": CGKeyCode(kVK_ANSI_1),
         "space": CGKeyCode(kVK_Space), "spc": CGKeyCode(kVK_Space),
-        "period": CGKeyCode(kVK_ANSI_Period), ".": CGKeyCode(kVK_ANSI_Period), "dot": CGKeyCode(kVK_ANSI_Period),
-        "comma": CGKeyCode(kVK_ANSI_Comma), ",": CGKeyCode(kVK_ANSI_Comma), "comm": CGKeyCode(kVK_ANSI_Comma),
-        "slash": CGKeyCode(kVK_ANSI_Slash), "/": CGKeyCode(kVK_ANSI_Slash), "slas": CGKeyCode(kVK_ANSI_Slash),
-        "backslash": CGKeyCode(kVK_ANSI_Backslash), "\\": CGKeyCode(kVK_ANSI_Backslash), "bsls": CGKeyCode(kVK_ANSI_Backslash),
-        "semicolon": CGKeyCode(kVK_ANSI_Semicolon), ";": CGKeyCode(kVK_ANSI_Semicolon), "scln": CGKeyCode(kVK_ANSI_Semicolon),
-        "quote": CGKeyCode(kVK_ANSI_Quote), "'": CGKeyCode(kVK_ANSI_Quote), "quot": CGKeyCode(kVK_ANSI_Quote),
-        "leftbracket": CGKeyCode(kVK_ANSI_LeftBracket), "[": CGKeyCode(kVK_ANSI_LeftBracket), "lbrc": CGKeyCode(kVK_ANSI_LeftBracket),
-        "rightbracket": CGKeyCode(kVK_ANSI_RightBracket), "]": CGKeyCode(kVK_ANSI_RightBracket), "rbrc": CGKeyCode(kVK_ANSI_RightBracket),
-        "grave": CGKeyCode(kVK_ANSI_Grave), "`": CGKeyCode(kVK_ANSI_Grave), "grv": CGKeyCode(kVK_ANSI_Grave),
-        "minus": CGKeyCode(kVK_ANSI_Minus), "-": CGKeyCode(kVK_ANSI_Minus), "mins": CGKeyCode(kVK_ANSI_Minus),
-        "equal": CGKeyCode(kVK_ANSI_Equal), "=": CGKeyCode(kVK_ANSI_Equal), "eql": CGKeyCode(kVK_ANSI_Equal),
+        "period": CGKeyCode(kVK_ANSI_Period), ".": CGKeyCode(kVK_ANSI_Period),
+        "dot": CGKeyCode(kVK_ANSI_Period),
+        "comma": CGKeyCode(kVK_ANSI_Comma), ",": CGKeyCode(kVK_ANSI_Comma),
+        "comm": CGKeyCode(kVK_ANSI_Comma),
+        "slash": CGKeyCode(kVK_ANSI_Slash), "/": CGKeyCode(kVK_ANSI_Slash),
+        "slas": CGKeyCode(kVK_ANSI_Slash),
+        "backslash": CGKeyCode(kVK_ANSI_Backslash), "\\": CGKeyCode(kVK_ANSI_Backslash),
+        "bsls": CGKeyCode(kVK_ANSI_Backslash),
+        "semicolon": CGKeyCode(kVK_ANSI_Semicolon), ";": CGKeyCode(kVK_ANSI_Semicolon),
+        "scln": CGKeyCode(kVK_ANSI_Semicolon),
+        "quote": CGKeyCode(kVK_ANSI_Quote), "'": CGKeyCode(kVK_ANSI_Quote),
+        "quot": CGKeyCode(kVK_ANSI_Quote),
+        "leftbracket": CGKeyCode(kVK_ANSI_LeftBracket), "[": CGKeyCode(kVK_ANSI_LeftBracket),
+        "lbrc": CGKeyCode(kVK_ANSI_LeftBracket),
+        "rightbracket": CGKeyCode(kVK_ANSI_RightBracket), "]": CGKeyCode(kVK_ANSI_RightBracket),
+        "rbrc": CGKeyCode(kVK_ANSI_RightBracket),
+        "grave": CGKeyCode(kVK_ANSI_Grave), "`": CGKeyCode(kVK_ANSI_Grave),
+        "grv": CGKeyCode(kVK_ANSI_Grave),
+        "minus": CGKeyCode(kVK_ANSI_Minus), "-": CGKeyCode(kVK_ANSI_Minus),
+        "mins": CGKeyCode(kVK_ANSI_Minus),
+        "equal": CGKeyCode(kVK_ANSI_Equal), "=": CGKeyCode(kVK_ANSI_Equal),
+        "eql": CGKeyCode(kVK_ANSI_Equal),
 
         // Special Keys
-        "return": CGKeyCode(kVK_Return), "enter": CGKeyCode(kVK_Return), "ret": CGKeyCode(kVK_Return),
+        "return": CGKeyCode(kVK_Return), "enter": CGKeyCode(kVK_Return),
+        "ret": CGKeyCode(kVK_Return),
         "numpadenter": CGKeyCode(kVK_ANSI_KeypadEnter), "kpenter": CGKeyCode(kVK_ANSI_KeypadEnter),
         "tab": CGKeyCode(kVK_Tab),
         "escape": CGKeyCode(kVK_Escape), "esc": CGKeyCode(kVK_Escape),
-        "delete": CGKeyCode(kVK_Delete), "backspace": CGKeyCode(kVK_Delete), "bspc": CGKeyCode(kVK_Delete),
+        "delete": CGKeyCode(kVK_Delete), "backspace": CGKeyCode(kVK_Delete),
+        "bspc": CGKeyCode(kVK_Delete),
         "forwarddelete": CGKeyCode(kVK_ForwardDelete), "del": CGKeyCode(kVK_ForwardDelete),
-        "help": CGKeyCode(kVK_Help), "insert": CGKeyCode(kVK_Help), // macOS Help key often acts as Insert
+        "help": CGKeyCode(kVK_Help), "insert": CGKeyCode(kVK_Help),  // macOS Help key often acts as Insert
         "home": CGKeyCode(kVK_Home),
         "end": CGKeyCode(kVK_End),
         "pageup": CGKeyCode(kVK_PageUp), "pgup": CGKeyCode(kVK_PageUp),
@@ -87,26 +104,28 @@ struct KeyMapping {
     // Note: Left/Right variants map to the same primary flag for simplicity initially.
     // Specific L/R handling might need CGKeyCode check if required.
     static let stringToFlagsMap: [String: CGEventFlags] = [
-        "cmd": .maskCommand, "lcmd": .maskCommand, "rcmd": .maskCommand, // kVK_Command, kVK_RightCommand
-        "shift": .maskShift, "lshift": .maskShift, "rshift": .maskShift, "lsft": .maskShift, "rsft": .maskShift, // kVK_Shift, kVK_RightShift
-        "opt": .maskAlternate, "lopt": .maskAlternate, "ropt": .maskAlternate, // kVK_Option, kVK_RightOption
-        "ctrl": .maskControl, "lctrl": .maskControl, "rctrl": .maskControl, // kVK_Control, kVK_RightControl
-        "caps": .maskAlphaShift, "capslock": .maskAlphaShift, // kVK_CapsLock
-        "fn": .maskSecondaryFn, // kVK_Function
+        "cmd": .maskCommand, "lcmd": .maskCommand, "rcmd": .maskCommand,  // kVK_Command, kVK_RightCommand
+        "shift": .maskShift, "lshift": .maskShift, "rshift": .maskShift, "lsft": .maskShift,
+        "rsft": .maskShift,  // kVK_Shift, kVK_RightShift
+        "opt": .maskAlternate, "lopt": .maskAlternate, "ropt": .maskAlternate,  // kVK_Option, kVK_RightOption
+        "ctrl": .maskControl, "lctrl": .maskControl, "rctrl": .maskControl,  // kVK_Control, kVK_RightControl
+        "caps": .maskAlphaShift, "capslock": .maskAlphaShift,  // kVK_CapsLock
+        "fn": .maskSecondaryFn,  // kVK_Function
     ]
 
     // Reverse map: CGKeyCode to a primary String representation (for display/logging)
     // We choose one primary representation (e.g., lowercase letter, full name for special keys)
-    static let keyCodeToStringMap: [CGKeyCode: String] = Dictionary(uniqueKeysWithValues: stringToKeyCodeMap.map { ($1, $0) })
+    static let keyCodeToStringMap: [CGKeyCode: String] = Dictionary(
+        uniqueKeysWithValues: stringToKeyCodeMap.map { ($1, $0) })
 
     // Helper to get KeyCode from string
     static func getKeyCode(for string: String) -> CGKeyCode? {
-        return stringToKeyCodeMap[string.lowercased()] // Use lowercase for case-insensitivity
+        return stringToKeyCodeMap[string.lowercased()]  // Use lowercase for case-insensitivity
     }
 
     // Helper to get Flags from string
     static func getFlags(for string: String) -> CGEventFlags? {
-        return stringToFlagsMap[string.lowercased()] // Use lowercase for case-insensitivity
+        return stringToFlagsMap[string.lowercased()]  // Use lowercase for case-insensitivity
     }
 
     // Helper to get primary String representation from KeyCode
@@ -125,7 +144,7 @@ struct KeyMapping {
     // Parses a key binding string (e.g., "cmd+shift+k", "f", "lctrl+return")
     // into its non-modifier key code and the combined modifier flags.
     // Returns nil if the string is invalid (e.g., multiple non-modifier keys, unknown keys).
-    static func parseBindingKeyCombo(keyString: String) -> (keyCode: CGKeyCode, modifiers: CGEventFlags)? {
+    static func parseBindingKeyCombo(keyString: String) -> ParsedKey? {
         let parts = keyString.lowercased().split(separator: "+").map(String.init)
 
         var keyCode: CGKeyCode? = nil
@@ -142,7 +161,7 @@ struct KeyMapping {
                 let isSpecificModifierKeyCode = stringToFlagsMap.keys.contains(part)
 
                 if !isSpecificModifierKeyCode {
-                     // This is a standard non-modifier key (a, b, 1, enter, f1, etc.)
+                    // This is a standard non-modifier key (a, b, 1, enter, f1, etc.)
                     if foundNonModifierKey {
                         // Invalid: multiple non-modifier keys found (e.g., "a+b")
                         // Logger.log("Error parsing key combo '\(keyString)': Multiple non-modifier keys found.")
@@ -159,17 +178,17 @@ struct KeyMapping {
                         // Logger.log("Error parsing key combo '\(keyString)': Found specific modifier '\(part)' after non-modifier key.")
                         return nil
                     }
-                     // If this is the *only* key, treat it as the keyCode
-                     if parts.count == 1 {
-                         keyCode = code
-                         foundNonModifierKey = true // Treat single specific modifier as the 'non-modifier' part for parsing result
-                     } else {
-                         // If part of a combo (e.g., "shift+lcmd"), we already added its flag.
-                         // We need to decide if this specific modifier should be the keyCode.
-                         // Let's assume the *last* specific key encountered is the target if no other non-modifier is found.
-                         // This allows combos like "shift+capslock" where capslock is the key.
-                         keyCode = code // Tentatively set it, might be overwritten by a later *actual* non-modifier
-                     }
+                    // If this is the *only* key, treat it as the keyCode
+                    if parts.count == 1 {
+                        keyCode = code
+                        foundNonModifierKey = true  // Treat single specific modifier as the 'non-modifier' part for parsing result
+                    } else {
+                        // If part of a combo (e.g., "shift+lcmd"), we already added its flag.
+                        // We need to decide if this specific modifier should be the keyCode.
+                        // Let's assume the *last* specific key encountered is the target if no other non-modifier is found.
+                        // This allows combos like "shift+capslock" where capslock is the key.
+                        keyCode = code  // Tentatively set it, might be overwritten by a later *actual* non-modifier
+                    }
                 }
             } else {
                 // Unknown key part
@@ -180,11 +199,11 @@ struct KeyMapping {
 
         // Must have exactly one effective non-modifier key code
         if let finalKeyCode = keyCode, foundNonModifierKey || parts.count == 1 {
-             // Special case: if the final key code itself represents a modifier (like kVK_Command for lcmd),
-             // ensure its corresponding flag isn't *also* set from the modifier part, unless intended.
-             // Example: "lcmd" -> keyCode=kVK_Command, modifiers=[].
-             // Example: "shift+lcmd" -> keyCode=kVK_Command, modifiers=[.maskShift].
-             // This seems correct as is.
+            // Special case: if the final key code itself represents a modifier (like kVK_Command for lcmd),
+            // ensure its corresponding flag isn't *also* set from the modifier part, unless intended.
+            // Example: "lcmd" -> keyCode=kVK_Command, modifiers=[].
+            // Example: "shift+lcmd" -> keyCode=kVK_Command, modifiers=[.maskShift].
+            // This seems correct as is.
             return (keyCode: finalKeyCode, modifiers: modifiers)
         } else {
             // Invalid: No non-modifier key found (e.g., "cmd+shift") or logic error

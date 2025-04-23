@@ -24,7 +24,7 @@ class KeyboardMonitor {
   ]
 
   // MARK: - Dependencies
-  private let actionExecutor = ActionExecutor()
+  private let actionExecutor: ActionExecutor
 
   // MARK: - Event Tap Properties
   private var eventTap: CFMachPort?
@@ -50,13 +50,15 @@ class KeyboardMonitor {
 
   // TODO: Add delegate/callback for sequence detection
 
-  init() {
+  init(actionExecutor: ActionExecutor) {
+    self.actionExecutor = actionExecutor
     // Load initial config values
     updateConfigValues()
   }
 
   deinit {
     stop()  // Ensure the tap is disabled when the monitor is deinitialized
+    // TODO: Potentially add notification if no binding matches
   }
 
   func start() {
@@ -290,12 +292,15 @@ class KeyboardMonitor {
     self.currentSequence = []
     self.sequenceActionTriggered = false
 
-    if let masterKeyString = ConfigManager.shared.getMasterKey() {
-      self.configuredMasterKeyCode = KeyMapping.getKeyCode(for: masterKeyString)
+    let configManager = ConfigManager.shared
+    if let masterKeyString = configManager.getMasterKey(),
+      let code = KeyMapping.getKeyCode(for: masterKeyString)
+    {
+      self.configuredMasterKeyCode = code
     } else {
       print("KeyboardMonitor: Master key not found in config.")
     }
-    self.configuredTapTimeoutMs = ConfigManager.shared.getMasterKeyTapTimeout()
+    self.configuredTapTimeoutMs = configManager.getMasterKeyTapTimeout()
 
     print(
       "KeyboardMonitor: Config updated. MasterKeyCode: \(String(describing: configuredMasterKeyCode)), TapTimeout: \(configuredTapTimeoutMs)ms"
@@ -303,6 +308,9 @@ class KeyboardMonitor {
 
     // If the tap is already running, potentially restart it if master key changed?
     // For now, assumes restart happens externally if needed.
+
+    // Reset sequence state if config changes
+    resetSequenceState()
   }
 
   /// Called when the configuration has potentially changed.
@@ -336,89 +344,86 @@ class KeyboardMonitor {
   // MARK: - Sequence Processing (Task 17)
 
   private func processCurrentSequence() {
-    guard !currentSequence.isEmpty else { return }
-    // print("Processing sequence: \(currentSequence)")
-
-    guard let bindings = ConfigManager.shared.getBindings() else {
-      print("No bindings loaded, cannot process sequence.")
+    guard let bindings = ConfigManager.shared.currentConfig?.bindings else {
+      // print("No bindings configured.")
+      resetSequenceState()  // No bindings, reset
       return
     }
 
-    var potentialMatches = 0
-    var exactMatchBinding: Binding? = nil
+    // print("Processing sequence: \(currentSequence.map { $0.keyCode }) (len: \(currentSequence.count))")
+
+    var potentialMatchFound = false
+    var exactMatchFound = false
 
     for binding in bindings {
-      guard let parsedKeys = binding.parsedKeys else { continue }  // Skip bindings that failed parsing
+      // Skip bindings that don't have parsed sequence keys (shouldn't happen with current logic)
+      // guard let parsedSequenceKeys = binding.parsedKeys else { continue }
 
-      // Check if currentSequence is a prefix of this binding's parsedKeys
-      // Use a custom comparison that ignores irrelevant modifier flags
-      if parsedKeys.starts(
-        with: currentSequence,
-        by: { bindingKey, sequenceKey in
-          // Compare key codes
-          let keyCodesMatch = bindingKey.keyCode == sequenceKey.keyCode
-          // Compare relevant modifier flags
-          // Intersect the incoming sequence key's flags with the relevant ones
-          let sequenceRelevantFlags = sequenceKey.modifiers.intersection(
-            KeyboardMonitor.relevantModifierFlags)
-          // The binding key's flags should already only contain relevant ones from parsing
-          let bindingFlags = bindingKey.modifiers
-          let modifiersMatch = sequenceRelevantFlags == bindingFlags
+      // Parse the binding's key sequence strings on the fly
+      var parsedBindingSequence: [ParsedKey] = []
+      var parseError = false
+      for keyString in binding.keys {
+        guard let parsedKey = KeyMapping.parseBindingKeyCombo(keyString: keyString) else {
+          print(
+            "ERROR: Could not parse key '\(keyString)' in binding '\(binding.description ?? "?")' during sequence check."
+          )
+          parseError = true
+          break  // Stop parsing this binding
+        }
+        parsedBindingSequence.append(parsedKey)
+      }
+      if parseError { continue }  // Skip binding if keys couldn't be parsed
 
-          // print("Comparing BK: \(bindingKey) with SK: \(sequenceKey) -> KC Match: \(keyCodesMatch), Mod Match: \(modifiersMatch) (SeqRel: \(sequenceRelevantFlags.rawValue), Bind: \(bindingFlags.rawValue))")
+      // Check if the current sequence is a prefix of this binding's sequence
+      if currentSequence.count <= parsedBindingSequence.count {
+        // Compare key codes only for prefix matching
+        let currentSequenceKeyCodes = currentSequence.map { $0.keyCode }
+        let bindingKeyCodes = parsedBindingSequence.map { $0.keyCode }
 
-          return keyCodesMatch && modifiersMatch
-        })
-      {
-        // It's a potential match (either exact or prefix)
-        potentialMatches += 1
-        // print("Potential match with binding: \(binding.description ?? "N/A")")
+        if bindingKeyCodes.starts(with: currentSequenceKeyCodes) {
+          potentialMatchFound = true
+          // Check for exact match (length and key codes)
+          if currentSequence.count == parsedBindingSequence.count {
+            // For exact match, we might eventually want to compare modifiers too,
+            // but for now, key code sequence is enough.
+            print("Exact match found for binding: \(binding.description ?? "No description")")
 
-        if parsedKeys.count == currentSequence.count {
-          // Exact match found!
-          if exactMatchBinding != nil {
-            // This shouldn't happen if validation prevents duplicate full sequences
-            print(
-              "WARNING: Multiple exact matches found for sequence! Using the first one found: \(exactMatchBinding!.description ?? "N/A")"
-            )
-          } else {
-            exactMatchBinding = binding
-            // print("Exact match found: \(binding.description ?? "N/A")")
+            // Convert Action to HyprCutAction using the new computed property
+            if let hyprAction = binding.action.hyprCutAction {
+              actionExecutor.execute(action: hyprAction)
+            } else {
+              // This should ideally not happen if the conversion logic is complete
+              print(
+                "ERROR: Could not convert Action to HyprCutAction for binding: \(binding.description ?? "?")"
+              )
+            }
+
+            exactMatchFound = true
+            sequenceActionTriggered = true  // Set the flag
+            break  // Stop checking other bindings once an exact match is found
           }
-          // Don't break here, continue checking other bindings in case of ambiguities or errors
         }
       }
     }
 
-    if let bindingToExecute = exactMatchBinding {
-      print("Executing action for binding: \(bindingToExecute.description ?? "No description")")
-      // TODO: Execute the action associated with the binding (Task 1b, 20-24)
-      // mySelf.actionExecutor.execute(action: bindingToExecute.action)
-
-      // Mark that an action was triggered
-      sequenceActionTriggered = true
-
-      // Reset sequence immediately after execution? Or wait for master key up?
-      // Resetting immediately prevents issues if user keeps typing after match.
-      currentSequence = []
-      // print("Sequence reset after action execution.")
-
-      // TODO: Provide feedback (e.g., success notification)? (Task 27)
-
-    } else if potentialMatches > 0 {
-      // It's a prefix of one or more bindings, but not an exact match yet.
-      // Do nothing, wait for the next key or timeout.
-      // The sequence timer is already running or will be started by the caller.
-    } else {
-      // No potential matches found (neither prefix nor exact).
-      // The sequence is invalid.
-      // print("Invalid sequence: \(currentSequence)")
-      // Reset the sequence
-      currentSequence = []
-      sequenceActionTriggered = false  // Ensure reset
-
-      // TODO: Provide feedback (e.g., error notification, visual cue)? (Task 18, 27b)
+    // If an exact match was found, reset the sequence
+    if exactMatchFound {
+      print("Resetting sequence after exact match.")
+      resetSequenceState()
+    } else if !potentialMatchFound {
+      // If the current sequence doesn't match the start of *any* binding,
+      // it's invalid. Reset the sequence.
+      print("Current sequence does not match any binding prefix. Resetting.")
+      // TODO: Implement feedback/cancellation (Task 18)
+      resetSequenceState()
     }
+    // If potential matches were found but no exact match yet, do nothing - wait for more keys.
+  }
+
+  private func resetSequenceState() {
+    // print("Resetting sequence state.")
+    currentSequence = []
+    // Keep sequenceActionTriggered as is, it's reset on Master Key Up
   }
 
   // MARK: - Helpers

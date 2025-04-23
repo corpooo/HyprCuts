@@ -38,6 +38,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Dependencies
     private var keyboardMonitor: KeyboardMonitor?
     private var permissionPollTimer: Timer?
+    private var actionExecutor: ActionExecutor?  // Added ActionExecutor instance
 
     // MARK: - State
     private var hasAccessibilityPermissions: Bool = false
@@ -51,6 +52,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         _ = ConfigManager.shared  // Access singleton to trigger init and initial load
 
         checkAccessibilityPermissions()
+
+        // Initialize Action Executor
+        actionExecutor = ActionExecutor()
 
         setupMenuBar()
         // setupEventTap() // <-- Removed: Now handled by KeyboardMonitor
@@ -90,7 +94,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         print("Initializing and starting Keyboard Monitor...")
-        keyboardMonitor = KeyboardMonitor()
+        // Ensure we have an actionExecutor instance
+        guard let executor = self.actionExecutor else {
+            print("ERROR: ActionExecutor not initialized before KeyboardMonitor.")
+            // TODO: Handle this error state more robustly
+            return
+        }
+        keyboardMonitor = KeyboardMonitor(actionExecutor: executor)  // Pass ActionExecutor
         keyboardMonitor?.start()
     }
 

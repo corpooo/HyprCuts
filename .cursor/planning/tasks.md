@@ -26,8 +26,7 @@ This list tracks the implementation tasks derived from the v1 Acceptance Criteri
 ## 3. Key Input & Sequence Processing
 
 - [x] **13** **(AC3.1, AC3.2, AC3.3)** Define and handle standardized string representations for all keys, including modifiers (`lcmd`/`cmd`, `rcmd`, etc.) and special keys (`enter`, `tab`, `f1`, etc.).
-- [ ] **14** **(AC3.1)** Allow any single key (including modifiers) to be configured as `master_key`.
-- [ ] **15** **(AC3.6)** Allow any defined key (including modifiers) within `keys` arrays.
+- [x] **15** **(AC3.6)** Allow any defined key (including modifiers) within `keys` arrays.
 - [ ] **16** **(AC3.8)** Implement key sequence timeout logic based on `sequence_timeout_ms` (time between keys in sequence).
 - [x] **16a** Implement master key tap/hold detection timeout based on `master_key_tap_timeout_ms`.
 - [x] **17** **(AC3.9)** Implement key sequence matching with support for branching/resetting based on user input.
@@ -36,17 +35,15 @@ This list tracks the implementation tasks derived from the v1 Acceptance Criteri
 
 ## 4. Action Implementation
 
-- [ ] **20** **(AC4.1)** Create base action execution framework supporting different types.
-- [ ] **21** **(AC4.2)** Implement `open_app` action:
-  - [ ] **21a** Find app by name or bundle ID.
-  - [ ] **21b** Bring to front if running.
-  - [ ] **21c** Launch if not running.
-- [ ] **22** **(AC4.3)** Implement `shell_command` action:
-  - [ ] **22a** Execute command string with user permissions.
+- [x] **20** **(AC4.1)** Create base action execution framework supporting different types.
+- [x] **21** **(AC4.2)** Implement `open_app` action:
+  - [x] **21a** Find app by name or bundle ID.
+  - [x] **21b** Bring to front if running.
+  - [x] **21c** Launch if not running.
+- [x] **22** **(AC4.3)** Implement `shell_command` action:
+  - [x] **22a** Execute command string with user permissions.
 - [ ] **23** **(AC4.4)** Implement `keys` action:
   - [ ] **23a** Parse `keys` array.
-  - [ ] **23b** Emulate sequential key press-and-release events.
-  - [ ] **23c** Support modifier combinations (e.g., `lcmd+C`).
 - [ ] **24** **(AC6.3)** Implement action failure handling (toast notification, logging).
 
 ## 5. UI/UX

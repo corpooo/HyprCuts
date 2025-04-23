@@ -16,14 +16,12 @@ import Yams  // Make sure Yams is added via SPM
 
 struct AppConfig: Decodable {
   let masterKey: String
-  let sequenceTimeoutMs: Int  // Keep this for sequence timeout (Task 16)
   let masterKeyTapTimeoutMs: Int?  // Use this for tap/hold differentiation, optional
   let showSequenceNotification: Bool
   var bindings: [Binding]
 
   enum CodingKeys: String, CodingKey {
     case masterKey = "master_key"
-    case sequenceTimeoutMs = "sequence_timeout_ms"  // Keep original key
     case masterKeyTapTimeoutMs = "master_key_tap_timeout_ms"  // Add the correct key
     case showSequenceNotification = "show_sequence_notification"
     case bindings
@@ -35,21 +33,10 @@ struct Binding: Decodable {
   let action: Action
   let description: String?  // Optional description
 
-  // Add a property to store the parsed key sequence after decoding
-  var parsedKeys: [(keyCode: CGKeyCode, modifiers: CGEventFlags)]? = nil
-
   // Custom initializer to handle decoding and ignore parsedKeys
   enum CodingKeys: String, CodingKey {
     case keys, action, description
     // We omit parsedKeys here as it's not in the YAML
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    keys = try container.decode([String].self, forKey: .keys)
-    action = try container.decode(Action.self, forKey: .action)
-    description = try container.decodeIfPresent(String.self, forKey: .description)
-    parsedKeys = nil  // Explicitly initialize parsedKeys to nil
   }
 }
 
@@ -61,6 +48,19 @@ enum Action: Decodable {
   // Custom Decodable implementation for action types
   private enum CodingKeys: String, CodingKey {
     case type, target, command, keys
+  }
+
+  // Computed property to convert Action -> HyprCutAction
+  var hyprCutAction: HyprCutAction? {
+    switch self {
+    case .openApp(let target):
+      return .openApp(target: target)
+    case .shellCommand(let command):
+      return .runShellCommand(command: command)  // Ensure case name matches HyprCutAction
+    case .keys(let keys):
+      return .typeKeys(keys: keys)  // Pass [String] directly
+    // No default needed as all Action cases are covered
+    }
   }
 
   init(from decoder: Decoder) throws {
@@ -75,8 +75,9 @@ enum Action: Decodable {
       let command = try container.decode(String.self, forKey: .command)
       self = .shellCommand(command: command)
     case "keys":
-      let keys = try container.decode([String].self, forKey: .keys)
-      self = .keys(keys: keys)
+      // Decode directly into [String], remove parsing to [ParsedKey]
+      let keyStrings = try container.decode([String].self, forKey: .keys)
+      self = .keys(keys: keyStrings)  // Assign [String]
     default:
       // Improve error message for clarity
       let debugDesc =
@@ -135,10 +136,10 @@ class ConfigManager {
 
       // Parse YAML content using Yams (Task 10)
       let decoder = YAMLDecoder()
-      var config = try decoder.decode(AppConfig.self, from: configContent)
+      let config = try decoder.decode(AppConfig.self, from: configContent)
 
       // Validate parsed config (Task 10a)
-      guard let masterKeyCode = KeyMapping.getKeyCode(for: config.masterKey) else {
+      guard KeyMapping.getKeyCode(for: config.masterKey) != nil else {
         print(
           "ERROR: Invalid configuration: 'master_key' ('\(config.masterKey)') does not correspond to a known key code."
         )
@@ -157,24 +158,6 @@ class ConfigManager {
       }
       // Further master key validation (e.g. against problematic keys) could go here (Task 19)
 
-      // Parse and validate key bindings (Task 13 integration)
-      for i in 0..<config.bindings.count {
-        var parsedSequence: [(keyCode: CGKeyCode, modifiers: CGEventFlags)] = []
-        for keyString in config.bindings[i].keys {
-          guard let parsedKey = KeyMapping.parseBindingKeyCombo(keyString: keyString) else {
-            print(
-              "ERROR: Invalid key sequence in binding #\(i+1) ('\(config.bindings[i].description ?? "No description")'): Could not parse key '\(keyString)'."
-            )
-            // TODO: Log error properly (Task 12, 29)
-            handleConfigError()  // Invalidate the whole config for now
-            return
-          }
-          parsedSequence.append(parsedKey)
-        }
-        // Assign the successfully parsed sequence to the binding
-        config.bindings[i].parsedKeys = parsedSequence
-      }
-
       // If all validation passes, store the config
       self.currentConfig = config
 
@@ -184,8 +167,32 @@ class ConfigManager {
 
     } catch let error as DecodingError {
       // More specific error handling for decoding issues
-      print(
-        "ERROR: Failed to parse config file (YAML structure error): \(error.localizedDescription)")
+      print("ERROR: Failed to parse config file (YAML structure error).")
+      // Print detailed decoding error information
+      switch error {
+      case .typeMismatch(let type, let context):
+        print(
+          "  Type mismatch: '\(type)' not found or doesn't match expected type at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+        )
+        print("  Debug description: \(context.debugDescription)")
+      case .valueNotFound(let type, let context):
+        print(
+          "  Value not found: Expected '\(type)' at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+        )
+        print("  Debug description: \(context.debugDescription)")
+      case .keyNotFound(let key, let context):
+        print(
+          "  Key not found: '\(key.stringValue)' at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+        )
+        print("  Debug description: \(context.debugDescription)")
+      case .dataCorrupted(let context):
+        print(
+          "  Data corrupted: Invalid format at path: \(context.codingPath.map { $0.stringValue }.joined(separator: "."))"
+        )
+        print("  Debug description: \(context.debugDescription)")
+      @unknown default:
+        print("  Unknown decoding error: \(error.localizedDescription)")
+      }
       handleConfigError()  // Use a dedicated function for error state
     } catch {
       print("ERROR: Failed to read config file: \(error.localizedDescription)")  // TODO: Log error (Task 12, 29)
@@ -236,12 +243,6 @@ class ConfigManager {
   func getMasterKeyTapTimeout() -> Int {
     // Provide default value here
     return currentConfig?.masterKeyTapTimeoutMs ?? 200
-  }
-
-  /// Returns the sequence timeout in milliseconds (for time between sequence keys).
-  func getSequenceTimeout() -> Int? {
-    // Accessor for the other timeout value
-    return currentConfig?.sequenceTimeoutMs
   }
 
   /// Returns whether to show sequence notifications.
