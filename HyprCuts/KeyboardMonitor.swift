@@ -475,27 +475,53 @@ class KeyboardMonitor: ObservableObject {
 
   private func checkAndExecuteAction() {
     guard let node = currentBindingNode else { return }  // Should have a node if we got here
+    guard let lastKey = currentBindingPath.last else {
+      print("WARN: checkAndExecuteAction called with empty path. Cannot determine slot key.")
+      resetSequenceStateInternal()  // Reset if path is unexpectedly empty
+      return
+    }
 
     print(
-      "DEBUG: Checking action for node at path: [\(currentBindingPath.joined(separator: ", "))]")
+      "DEBUG: Checking action for node at path: [\\(currentBindingPath.joined(separator: ", "))]"
+    )
 
     switch node {
-    case .leaf(let action):
-      if let action = action {
-        print("DEBUG: Found action at leaf node: \(action)")
-        if let hyprAction = action.hyprCutAction {
+    case .leaf(let configAction):  // Renamed 'action' to 'configAction' for clarity
+      if let configAction = configAction {
+        print("DEBUG: Found action at leaf node: \\(configAction)")
+
+        var hyprActionToExecute: HyprCutAction? = nil
+
+        // Handle Harpoon actions specifically to pass the slotKey
+        switch configAction {
+        case .harpoonSet:
+          hyprActionToExecute = .harpoonSet(slotKey: lastKey)
+        case .harpoonRm:
+          hyprActionToExecute = .harpoonRm(slotKey: lastKey)
+        case .harpoonGo:
+          hyprActionToExecute = .harpoonGo(slotKey: lastKey)
+        case .harpoonReset:
+          hyprActionToExecute = .harpoonReset  // No slotKey needed
+        default:
+          // For other actions, use the existing conversion
+          hyprActionToExecute = configAction.hyprCutAction
+        }
+
+        if let finalAction = hyprActionToExecute {
           // Signal completion *before* executing and resetting
           // Pass a copy of the path as it is *right now*
-          print("DEBUG: Signaling sequence completion for path: \(currentBindingPath)")
+          print("DEBUG: Signaling sequence completion for path: \\(currentBindingPath)")
           onSequenceCompleted?(currentBindingPath)
 
-          actionExecutor.execute(action: hyprAction)
+          print("DEBUG: Executing action: \\(finalAction)")
+          actionExecutor.execute(action: finalAction)
 
           // Reset state immediately now that we've signaled
           revertToParentNode()
-
         } else {
-          print("WARN: Could not convert config Action to executable HyprCutAction.")
+          print(
+            "WARN: Could not determine executable HyprCutAction for config action: \\(configAction)"
+          )
           // If action conversion fails, maybe don't signal completion?
           // Or signal and let UI decide? For now, let's just reset.
           revertToParentNode()

@@ -73,6 +73,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: ConfigManager.configReloadedNotification,
             object: nil
         )
+        // Register for Harpoon pairings change notifications (Task 41e)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateMenuBarState),  // Reuse the same selector
+            name: HarpoonManager.pairingsDidChangeNotification,
+            object: nil
+        )
     }
 
     // Called when the app becomes active (e.g., returning from System Settings)
@@ -93,6 +100,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Remove observer
         NotificationCenter.default.removeObserver(
             self, name: ConfigManager.configReloadedNotification, object: nil)
+        // Remove Harpoon observer
+        NotificationCenter.default.removeObserver(
+            self, name: HarpoonManager.pairingsDidChangeNotification, object: nil)
     }
 
     // MARK: - Initialization Helpers
@@ -222,7 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Rebuilds the menu content (titles, states)
-    private func constructMenu() {
+    @objc private func constructMenu() {
         let menu = self.menu ?? NSMenu()  // Reuse existing menu or create new
         menu.removeAllItems()  // Clear existing items before rebuilding
 
@@ -257,7 +267,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         masterKeyItem.isEnabled = false
         menu.addItem(masterKeyItem)
 
-        menu.addItem(NSMenuItem.separator())
+        // --- Harpoon Pairings Section --- (Task 41)
+        menu.addItem(NSMenuItem.separator())  // Separator before harpoon section
+
+        let pairingsTitleItem = NSMenuItem(
+            title: "Harpoon Pairings:", action: nil, keyEquivalent: "")
+        pairingsTitleItem.isEnabled = false  // Just a title
+        menu.addItem(pairingsTitleItem)
+
+        let harpoonPairings = HarpoonManager.shared.getAllPairings()
+
+        if harpoonPairings.isEmpty {
+            // Task 41d: Show "(None)" if no pairings
+            let noneItem = NSMenuItem(title: "  (None)", action: nil, keyEquivalent: "")
+            noneItem.isEnabled = false
+            menu.addItem(noneItem)
+        } else {
+            // Task 41b, 41c: List each pairing
+            // Sort by slot key for consistent order
+            for (slotKey, bundleId) in harpoonPairings.sorted(by: { $0.key < $1.key }) {
+                // Resolve app name from bundle ID
+                var appName = bundleId  // Default to bundle ID if name lookup fails
+                if let appURL = NSWorkspace.shared.urlForApplication(
+                    withBundleIdentifier: bundleId),
+                    let appBundle = Bundle(url: appURL),
+                    let name = appBundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+                {
+                    appName = name
+                }
+
+                let pairingItem = NSMenuItem(
+                    title: "  Slot '\(slotKey)': \(appName)", action: nil, keyEquivalent: "")
+                pairingItem.isEnabled = false  // Informational only
+                menu.addItem(pairingItem)
+            }
+        }
+
+        menu.addItem(NSMenuItem.separator())  // Separator after harpoon section
 
         // --- Quit --- (Task 27e)
         menu.addItem(
@@ -273,7 +319,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Removed custom getMasterKeySymbol function, using KeyMapping.getDisplayString instead.
 
     // Updates the menu bar icon and rebuilds menu content based on current state
-    private func updateMenuBarState() {
+    @objc private func updateMenuBarState() {
         DispatchQueue.main.async {  // Ensure UI updates happen on main thread
             let imageName: String
             let accessibilityDescription: String

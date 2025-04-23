@@ -70,6 +70,10 @@ enum Action: Decodable {
   case shellCommand(command: String)
   case keys(keys: [String])
   case reset  // New action type for v2 (Task 25, v2 AC1.5)
+  case harpoonSet  // Harpoon: Set pairing for the final key in sequence
+  case harpoonRm  // Harpoon: Remove pairing for the final key in sequence
+  case harpoonGo  // Harpoon: Go to application paired with the final key in sequence
+  case harpoonReset  // Harpoon: Reset all pairings
 
   // Custom Decodable implementation for action types
   private enum CodingKeys: String, CodingKey {
@@ -88,19 +92,17 @@ enum Action: Decodable {
     case .reset:
       return .resetSequenceState  // Assuming HyprCutAction has this case
     // TODO: Add .resetSequenceState to HyprCutAction enum
+    // Harpoon actions are handled directly in KeyboardMonitor.checkAndExecuteAction
+    // to allow passing the slotKey, so they are not converted here.
+    case .harpoonSet, .harpoonRm, .harpoonGo, .harpoonReset:
+      return nil
     }
   }
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
 
-    // Check for the 'reset' type first as it has no other arguments
-    if let type = try? container.decode(String.self, forKey: .type), type == "reset" {
-      self = .reset
-      return  // Exit early for reset type
-    }
-
-    // Proceed with other types if not 'reset'
+    // Read the type first to determine which action it is
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
@@ -113,11 +115,29 @@ enum Action: Decodable {
     case "keys":
       let keyStrings = try container.decode([String].self, forKey: .keys)
       self = .keys(keys: keyStrings)
+    case "reset":
+      // Reset action has no other parameters
+      self = .reset
+    case "harpoon:set":  // Use ':' as per AC spec
+      // These actions don't have additional parameters in the config itself,
+      // the slot key comes from the binding structure.
+      self = .harpoonSet
+    case "harpoon:rm":
+      self = .harpoonRm
+    case "harpoon:go":
+      self = .harpoonGo
+    case "harpoon:reset":
+      // This reset is specific to harpoon, distinct from the sequence reset
+      self = .harpoonReset
     // Removed 'default' case to ensure all action types must be explicitly handled or throw error below
     default:
       // Improved error message for clarity
+      let expectedTypes = [
+        "open_app", "shell_command", "keys", "reset",
+        "harpoon:set", "harpoon:rm", "harpoon:go", "harpoon:reset",
+      ].map { item in "'\\(item)'" }.joined(separator: ", ")
       let debugDesc =
-        "Invalid action type '\\(type)' found in config. Expected 'open_app', 'shell_command', 'keys', or 'reset'."  // Updated expected types
+        "Invalid action type '\\(type)' found in config. Expected one of: \\(expectedTypes)."
       throw DecodingError.dataCorruptedError(
         forKey: .type, in: container, debugDescription: debugDesc)
     }

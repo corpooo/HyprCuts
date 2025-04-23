@@ -7,6 +7,7 @@
 
 import AppKit  // Needed for NSEvent
 import Foundation
+import os  // Import os for logging
 
 // Make enum internal (default access level) so it's accessible from ConfigManager
 enum HyprCutAction {
@@ -15,9 +16,16 @@ enum HyprCutAction {
   case typeKeys(keys: [String])
   case debugPrintKeyEvent(event: NSEvent)  // Keeping debug action
   case resetSequenceState  // Added for v2 reset action (Task 25)
+
+  // Harpoon Actions (Task 35+)
+  case harpoonSet(slotKey: String)
+  case harpoonRm(slotKey: String)
+  case harpoonGo(slotKey: String)
+  case harpoonReset
 }
 
 class ActionExecutor {
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ActionExecutor")
 
   func execute(action: HyprCutAction) {
     switch action {
@@ -31,6 +39,14 @@ class ActionExecutor {
       handleDebugPrintKeyEvent(event: event)
     case .resetSequenceState:
       handleResetSequenceState()  // Call new handler
+    case .harpoonSet(let slotKey):
+      handleHarpoonSet(slotKey: slotKey)
+    case .harpoonRm(let slotKey):
+      handleHarpoonRm(slotKey: slotKey)
+    case .harpoonGo(let slotKey):
+      handleHarpoonGo(slotKey: slotKey)
+    case .harpoonReset:
+      handleHarpoonReset()
     }
   }
 
@@ -166,6 +182,111 @@ class ActionExecutor {
     // For now, just print a message.
     print("ActionExecutor: Executing resetSequenceState action.")
     // TODO: Implement interaction with KeyboardMonitor to reset its state (Task 1b, 25)
+  }
+
+  // MARK: - Harpoon Action Handlers
+
+  private func handleHarpoonSet(slotKey: String) {
+    logger.debug("Executing harpoon:set for slot '\\(slotKey)'")
+    guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+      logger.error("Harpoon:set failed: Could not determine frontmost application.")
+      // TODO: Notify user (Task 40b)
+      return
+    }
+
+    guard let bundleIdentifier = frontmostApp.bundleIdentifier else {
+      logger.error(
+        "Harpoon:set failed: Could not get bundle identifier for frontmost application ('\(frontmostApp.localizedName ?? "Unknown")')."
+      )
+      // TODO: Notify user (Task 40b)
+      return
+    }
+
+    HarpoonManager.shared.setPairing(forKey: slotKey, bundleIdentifier: bundleIdentifier)
+    logger.info(
+      "Harpoon:set successful for slot '\\(slotKey)' to '\\(bundleIdentifier)' (\(frontmostApp.localizedName ?? "Unknown"))."
+    )
+    // TODO: Notify user of success (Task 40a)
+  }
+
+  private func handleHarpoonRm(slotKey: String) {
+    logger.debug("Executing harpoon:rm for slot '\\(slotKey)'")
+    // Check if pairing exists before attempting removal to provide better feedback
+    if HarpoonManager.shared.getPairing(forKey: slotKey) != nil {
+      HarpoonManager.shared.removePairing(forKey: slotKey)
+      logger.info("Harpoon:rm successful for slot '\\(slotKey)'")
+      // TODO: Notify user of removal (Task 40a)
+    } else {
+      logger.warning("Harpoon:rm: No pairing found for slot '\\(slotKey)'. Nothing removed.")
+      // TODO: Notify user that no pairing existed (Task 40a)
+    }
+  }
+
+  private func handleHarpoonGo(slotKey: String) {
+    logger.debug("Executing harpoon:go for slot '\\(slotKey)'")
+    guard let bundleIdentifier = HarpoonManager.shared.getPairing(forKey: slotKey) else {
+      logger.warning("Harpoon:go failed: No pairing found for slot '\\(slotKey)'.")
+      // TODO: Notify user (Task 40a)
+      return
+    }
+
+    logger.info(
+      "Harpoon:go attempting to launch/activate '\\(bundleIdentifier)' for slot '\\(slotKey)'.")
+
+    // Fix: Revert to using open() with URL and OpenConfiguration
+    guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+    else {
+      logger.error(
+        "Harpoon:go failed: Could not find application URL for bundle identifier '\\(bundleIdentifier)'."
+      )
+      // TODO: Notify user (Task 40b)
+      return
+    }
+
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.activates = true  // Equivalent to activating/bringing to front
+
+    NSWorkspace.shared.open(appURL, configuration: configuration) {
+      runningApp, error in
+      if let error = error {
+        self.logger.error(
+          "Harpoon:go failed to open/activate application '\\(bundleIdentifier)': \\(error.localizedDescription)"
+        )
+        // TODO: Notify user (Task 40b)
+      } else if let app = runningApp {
+        self.logger.info(
+          "Harpoon:go successfully opened/activated application '\\(app.localizedName ?? bundleIdentifier)'"
+        )
+        // Success notification might be redundant as app appears
+      } else {
+        // Should not happen if error is nil, but handle defensively
+        self.logger.error(
+          "Harpoon:go: Unknown error opening/activating application '\\(bundleIdentifier)'")
+        // TODO: Notify user (Task 40b)
+      }
+    }
+
+    // Remove the incorrect launchApplication attempt
+    /*
+    do {
+        let runningApp = try NSWorkspace.shared.launchApplication(
+            withBundleIdentifier: bundleIdentifier,
+            options: [.activateIgnoringOtherApps] // Ensure it comes to front
+            // No configuration or completion handler for launchApplication
+        )
+        self.logger.info("Harpoon:go successfully launched/activated application '\\(runningApp.localizedName ?? bundleIdentifier)'")
+    } catch {
+        self.logger.error("Harpoon:go failed to launch/activate application '\\(bundleIdentifier)': \\(error.localizedDescription)")
+        // TODO: Notify user (Task 40b)
+    }
+    */
+  }
+
+  private func handleHarpoonReset() {
+    logger.debug("Executing harpoon:reset")
+    HarpoonManager.shared.clearAllPairings()
+    logger.info("Harpoon:reset successful. All pairings cleared.")
+    // TODO: Notify user (Task 40a)
   }
 
   // MARK: - Existing Debug Handler (No changes needed below)
