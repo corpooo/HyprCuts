@@ -47,6 +47,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("HyprCuts App finished launching!")
 
+        // Initialize Config Manager (loads initial config)
+        _ = ConfigManager.shared  // Access singleton to trigger init and initial load
+
         checkAccessibilityPermissions()
 
         setupMenuBar()
@@ -60,7 +63,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // TODO: Update UI to clearly indicate permissions are needed (Task 28)
         }
 
-        // TODO: Initialize Config Manager (Load initial config)
         // TODO: Add logic to update menu bar state based on permissions (Task 28)
         // TODO: Add logic to prompt user if permissions are missing (Task 4)
     }
@@ -197,8 +199,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 title: "Reload Config", action: #selector(reloadConfig(_:)), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         // TODO: Display actual master key
+        let masterKey = ConfigManager.shared.getMasterKey() ?? "(Not Set)"
         let masterKeyItem = NSMenuItem(
-            title: "Master Key: (Not Set)", action: nil, keyEquivalent: "")
+            title: "Master Key: \(masterKey)", action: nil, keyEquivalent: "")
         masterKeyItem.isEnabled = false  // Display only
         menu.addItem(masterKeyItem)
         menu.addItem(NSMenuItem.separator())
@@ -265,7 +268,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func reloadConfig(_ sender: Any?) {
         print("Reload Config action triggered")
-        // TODO: Tell the ConfigManager to reload
+        ConfigManager.shared.reloadConfig()
+        // Rebuild the menu to reflect potential changes (like master key)
+        constructMenu()
+        // Notify keyboard monitor about the potential change
+        keyboardMonitor?.configDidChange()
+        print("Config reloaded and menu updated.")
     }
 
     // MARK: - Event Tap Setup & Handling

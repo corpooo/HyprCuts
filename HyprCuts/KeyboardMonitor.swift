@@ -17,7 +17,8 @@ class KeyboardMonitor {
   // MARK: - Event Tap Properties
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  private var masterKeyCode: CGKeyCode = 44  // Forward slash (/) key code
+  private var configuredMasterKeyCode: CGKeyCode? // Loaded from config
+  private var configuredTapTimeoutMs: Int = 200 // Default to 200ms initially
 
   // State for Tap vs Hold detection
   private var isMasterKeyDown = false  // True ONLY if master key is confirmed HELD
@@ -28,12 +29,13 @@ class KeyboardMonitor {
   private var masterKeyHeldTimer: Timer? = nil  // Timer to detect hold
   private var isMasterKeyHeldProcessing = false  // True between master keyDown and timer fire/keyUp
   // TODO: Replace with actual value from config loading (Task 10)
-  private var tapTimeoutMs: Int = 200  // Milliseconds to differentiate tap/hold
+  // private var tapTimeoutMs: Int = 200  // Milliseconds to differentiate tap/hold
 
   // TODO: Add delegate/callback for sequence detection
 
   init() {
-    // Initialization, potentially load config for master key, etc.
+    // Load initial config values
+    updateConfigValues()
   }
 
   deinit {
@@ -88,6 +90,12 @@ class KeyboardMonitor {
         return Unmanaged.passRetained(event)
       }
 
+      // Ensure we have a valid master key configured
+      guard let targetMasterKeyCode = mySelf.configuredMasterKeyCode else {
+          // print("KeyboardMonitor: No valid master key configured. Passing event through.")
+          return Unmanaged.passRetained(event)
+      }
+
       // Use AppKit's NSEvent for easier key code access
       guard let nsEvent = NSEvent(cgEvent: event) else {
         print("Error converting CGEvent to NSEvent for key event")
@@ -96,8 +104,8 @@ class KeyboardMonitor {
       let keyCode = CGKeyCode(nsEvent.keyCode)
       // print("Detected key event - Code: \(keyCode), Type: \(type.rawValue)")
 
-      // Check if it's the master key
-      if keyCode == mySelf.masterKeyCode {
+      // Check if it's the configured master key
+      if keyCode == targetMasterKeyCode {
         if type == .keyDown {
           // If master key is already confirmed held, or we are already processing a press, ignore repeat keyDowns
           if mySelf.isMasterKeyDown || mySelf.isMasterKeyHeldProcessing {
@@ -116,8 +124,10 @@ class KeyboardMonitor {
           mySelf.masterKeyHeldTimer?.invalidate()
 
           // Start the timer to detect a hold
+          // Use the configured tap timeout directly (default handled by ConfigManager)
+          let timeout = Double(mySelf.configuredTapTimeoutMs) / 1000.0
           mySelf.masterKeyHeldTimer = Timer.scheduledTimer(
-            timeInterval: Double(mySelf.tapTimeoutMs) / 1000.0,
+            timeInterval: timeout,
             target: mySelf,
             selector: #selector(mySelf.masterKeyHeldTimerFired(_:)),
             userInfo: nil,
@@ -244,6 +254,41 @@ class KeyboardMonitor {
     // Enable the event tap.
     CGEvent.tapEnable(tap: eventTap, enable: true)
     print("Event tap enabled.")
+  }
+
+  // MARK: - Configuration Handling
+
+  /// Updates the monitor's behavior based on the current ConfigManager state.
+  private func updateConfigValues() {
+      guard let masterKeyString = ConfigManager.shared.getMasterKey() else {
+          print("KeyboardMonitor ERROR: Master key not found in configuration.")
+          self.configuredMasterKeyCode = nil
+          self.configuredTapTimeoutMs = 200 // Or keep old/default?
+          // TODO: Disable monitor or enter error state?
+          return
+      }
+
+      guard let keyCode = KeyMapping.getKeyCode(for: masterKeyString) else {
+          print("KeyboardMonitor ERROR: Could not map master key string '\(masterKeyString)' to a valid key code.")
+          self.configuredMasterKeyCode = nil
+          self.configuredTapTimeoutMs = 200
+          // TODO: Disable monitor or enter error state?
+          return
+      }
+
+      self.configuredMasterKeyCode = keyCode
+      // Get the tap timeout, default is handled by ConfigManager
+      self.configuredTapTimeoutMs = ConfigManager.shared.getMasterKeyTapTimeout()
+
+      // Use the actual timeout value in the debug print
+      print("DEBUG: KeyboardMonitor config updated. MasterKey: \(masterKeyString), Tap Timeout: \(self.configuredTapTimeoutMs)ms")
+  }
+
+  /// Called when the configuration has potentially changed.
+  func configDidChange() {
+      print("KeyboardMonitor: Configuration change detected, updating values...")
+      updateConfigValues()
+      // TODO: Reset sequence state if master key changed?
   }
 
   // Called by the masterKeyHeldTimer when the tapTimeoutMs is exceeded
