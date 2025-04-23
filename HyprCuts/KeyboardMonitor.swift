@@ -11,14 +11,26 @@ import Foundation
 
 class KeyboardMonitor {
 
+  // MARK: - Constants
+  // Define the modifier flags we care about for matching sequences
+  static let relevantModifierFlags: CGEventFlags = [
+    .maskShift,
+    .maskControl,
+    .maskAlternate,  // Option key
+    .maskCommand,
+    .maskSecondaryFn,  // Function key (Fn)
+    .maskAlphaShift,  // Caps Lock
+    // We explicitly EXCLUDE .maskNonCoalesced, .maskNumericPad etc.
+  ]
+
   // MARK: - Dependencies
   private let actionExecutor = ActionExecutor()
 
   // MARK: - Event Tap Properties
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  private var configuredMasterKeyCode: CGKeyCode? // Loaded from config
-  private var configuredTapTimeoutMs: Int = 200 // Default to 200ms initially
+  private var configuredMasterKeyCode: CGKeyCode?  // Loaded from config
+  private var configuredTapTimeoutMs: Int = 200  // Default to 200ms initially
 
   // State for Tap vs Hold detection
   private var isMasterKeyDown = false  // True ONLY if master key is confirmed HELD
@@ -28,6 +40,11 @@ class KeyboardMonitor {
   private var masterKeyDownTimestamp: Date? = nil  // When master key was pressed
   private var masterKeyHeldTimer: Timer? = nil  // Timer to detect hold
   private var isMasterKeyHeldProcessing = false  // True between master keyDown and timer fire/keyUp
+
+  // State for Sequence detection
+  private var currentSequence: [(keyCode: CGKeyCode, modifiers: CGEventFlags)] = []
+  private var sequenceActionTriggered = false  // Flag to indicate a sequence completed and triggered an action
+
   // TODO: Replace with actual value from config loading (Task 10)
   // private var tapTimeoutMs: Int = 200  // Milliseconds to differentiate tap/hold
 
@@ -92,8 +109,8 @@ class KeyboardMonitor {
 
       // Ensure we have a valid master key configured
       guard let targetMasterKeyCode = mySelf.configuredMasterKeyCode else {
-          // print("KeyboardMonitor: No valid master key configured. Passing event through.")
-          return Unmanaged.passRetained(event)
+        // print("KeyboardMonitor: No valid master key configured. Passing event through.")
+        return Unmanaged.passRetained(event)
       }
 
       // Use AppKit's NSEvent for easier key code access
@@ -179,11 +196,10 @@ class KeyboardMonitor {
             // Clear stored info
             mySelf.pendingMasterKeyDownCode = nil
             mySelf.pendingMasterKeyDownFlags = nil
-            // TODO: Process completed sequence or timeout (Task 1b, 16)
-            // TODO: Hide sequence input UI if configured
-            // TODO: Notify delegate/callback about sequence end
-            // Suppress the keyUp event since it was part of a hold sequence
-            // print("Suppressing Master key UP event for HOLD.")
+
+            // Reset the flag indicating an action was triggered by this sequence
+            mySelf.sequenceActionTriggered = false
+
             return nil
           } else {
             // Master key was not held or being processed (e.g., keyUp without prior keyDown?). Let it pass.
@@ -196,15 +212,20 @@ class KeyboardMonitor {
         if mySelf.isMasterKeyDown {
           // Master key is confirmed HELD, this is part of a sequence
           if type == .keyDown {
-            // Task 1b: Use ActionExecutor for the debug action
-            let action = HyprCutAction.debugPrintKeyEvent(event: nsEvent)
-            mySelf.actionExecutor.execute(action: action)
+            // Get keycode and flags for the incoming key
+            let sequenceKeyCode = CGKeyCode(nsEvent.keyCode)
+            let sequenceFlags = event.flags  // Use the raw flags from the CGEvent
 
-            // TODO: Integrate with actual sequence matching and action lookup (Task 1b, 17)
-            // TODO: Notify delegate/callback about sequence key press
+            // Append to the current sequence
+            mySelf.currentSequence.append((keyCode: sequenceKeyCode, modifiers: sequenceFlags))
+            // print("Added to sequence: \(mySelf.currentSequence.last!), Current full: \(mySelf.currentSequence)")
+
+            // Process the updated sequence
+            mySelf.processCurrentSequence()
+
           }
           // Suppress other keys (down and up) while master key is held
-          // print("Suppressing sequence key event (Code: \\(keyCode), Type: \\(type.rawValue))")
+          // print("Suppressing sequence key event (Code: \(keyCode), Type: \(type.rawValue))")
           return nil
         } else {
           // Master key is not held, let other keys pass through
@@ -260,58 +281,147 @@ class KeyboardMonitor {
 
   /// Updates the monitor's behavior based on the current ConfigManager state.
   private func updateConfigValues() {
-      guard let masterKeyString = ConfigManager.shared.getMasterKey() else {
-          print("KeyboardMonitor ERROR: Master key not found in configuration.")
-          self.configuredMasterKeyCode = nil
-          self.configuredTapTimeoutMs = 200 // Or keep old/default?
-          // TODO: Disable monitor or enter error state?
-          return
-      }
+    print("KeyboardMonitor: Updating config values...")
+    // Reset state that depends on config
+    self.configuredMasterKeyCode = nil
+    self.isMasterKeyDown = false
+    self.isMasterKeyHeldProcessing = false
+    self.masterKeyHeldTimer?.invalidate()
+    self.currentSequence = []
+    self.sequenceActionTriggered = false
 
-      guard let keyCode = KeyMapping.getKeyCode(for: masterKeyString) else {
-          print("KeyboardMonitor ERROR: Could not map master key string '\(masterKeyString)' to a valid key code.")
-          self.configuredMasterKeyCode = nil
-          self.configuredTapTimeoutMs = 200
-          // TODO: Disable monitor or enter error state?
-          return
-      }
+    if let masterKeyString = ConfigManager.shared.getMasterKey() {
+      self.configuredMasterKeyCode = KeyMapping.getKeyCode(for: masterKeyString)
+    } else {
+      print("KeyboardMonitor: Master key not found in config.")
+    }
+    self.configuredTapTimeoutMs = ConfigManager.shared.getMasterKeyTapTimeout()
 
-      self.configuredMasterKeyCode = keyCode
-      // Get the tap timeout, default is handled by ConfigManager
-      self.configuredTapTimeoutMs = ConfigManager.shared.getMasterKeyTapTimeout()
+    print(
+      "KeyboardMonitor: Config updated. MasterKeyCode: \(String(describing: configuredMasterKeyCode)), TapTimeout: \(configuredTapTimeoutMs)ms"
+    )
 
-      // Use the actual timeout value in the debug print
-      print("DEBUG: KeyboardMonitor config updated. MasterKey: \(masterKeyString), Tap Timeout: \(self.configuredTapTimeoutMs)ms")
+    // If the tap is already running, potentially restart it if master key changed?
+    // For now, assumes restart happens externally if needed.
   }
 
   /// Called when the configuration has potentially changed.
   func configDidChange() {
-      print("KeyboardMonitor: Configuration change detected, updating values...")
-      updateConfigValues()
-      // TODO: Reset sequence state if master key changed?
+    print("KeyboardMonitor: Configuration change detected, updating values...")
+    updateConfigValues()
+    // TODO: Reset sequence state if master key changed?
   }
 
   // Called by the masterKeyHeldTimer when the tapTimeoutMs is exceeded
   @objc private func masterKeyHeldTimerFired(_ timer: Timer) {
-    // print("Master key hold timer fired.")
-    masterKeyHeldTimer = nil  // Timer has done its job
-    // Discard the stored event info, it's a hold
-    pendingMasterKeyDownCode = nil
-    pendingMasterKeyDownFlags = nil
-
-    // Only proceed if the key is still considered potentially held
+    // Timer fired, meaning the key was held down long enough
+    masterKeyHeldTimer = nil  // Timer is non-repeating
     if isMasterKeyHeldProcessing {
-      // print("Confirmed Master key HELD (timer). Entering active state.")
-      print("KeyboardMonitor: Master key HELD. Ready to capture sequence.")
-      isMasterKeyDown = true  // Master key is officially HELD
-      isMasterKeyHeldProcessing = false  // Done processing the hold detection
-      // TODO: Start sequence listening (Task 1b)
+      // print("Master key HELD confirmed.")
+      isMasterKeyDown = true  // Set the state to indicate master key is officially held
+      isMasterKeyHeldProcessing = false  // Done with initial processing
+
+      // Reset sequence state when hold begins
+      currentSequence = []
+      sequenceActionTriggered = false
+
       // TODO: Show sequence input UI if configured
-      // TODO: Notify delegate/callback about hold start
-    } else {
-      // print("Hold timer fired, but key already released or processed. Ignoring.")
+      // TODO: Notify delegate/callback about sequence start
+
+      // Since the original keyDown was suppressed, we don't need to do anything else here.
+      // The subsequent key events will be handled based on isMasterKeyDown.
     }
   }
+
+  // MARK: - Sequence Processing (Task 17)
+
+  private func processCurrentSequence() {
+    guard !currentSequence.isEmpty else { return }
+    // print("Processing sequence: \(currentSequence)")
+
+    guard let bindings = ConfigManager.shared.getBindings() else {
+      print("No bindings loaded, cannot process sequence.")
+      return
+    }
+
+    var potentialMatches = 0
+    var exactMatchBinding: Binding? = nil
+
+    for binding in bindings {
+      guard let parsedKeys = binding.parsedKeys else { continue }  // Skip bindings that failed parsing
+
+      // Check if currentSequence is a prefix of this binding's parsedKeys
+      // Use a custom comparison that ignores irrelevant modifier flags
+      if parsedKeys.starts(
+        with: currentSequence,
+        by: { bindingKey, sequenceKey in
+          // Compare key codes
+          let keyCodesMatch = bindingKey.keyCode == sequenceKey.keyCode
+          // Compare relevant modifier flags
+          // Intersect the incoming sequence key's flags with the relevant ones
+          let sequenceRelevantFlags = sequenceKey.modifiers.intersection(
+            KeyboardMonitor.relevantModifierFlags)
+          // The binding key's flags should already only contain relevant ones from parsing
+          let bindingFlags = bindingKey.modifiers
+          let modifiersMatch = sequenceRelevantFlags == bindingFlags
+
+          // print("Comparing BK: \(bindingKey) with SK: \(sequenceKey) -> KC Match: \(keyCodesMatch), Mod Match: \(modifiersMatch) (SeqRel: \(sequenceRelevantFlags.rawValue), Bind: \(bindingFlags.rawValue))")
+
+          return keyCodesMatch && modifiersMatch
+        })
+      {
+        // It's a potential match (either exact or prefix)
+        potentialMatches += 1
+        // print("Potential match with binding: \(binding.description ?? "N/A")")
+
+        if parsedKeys.count == currentSequence.count {
+          // Exact match found!
+          if exactMatchBinding != nil {
+            // This shouldn't happen if validation prevents duplicate full sequences
+            print(
+              "WARNING: Multiple exact matches found for sequence! Using the first one found: \(exactMatchBinding!.description ?? "N/A")"
+            )
+          } else {
+            exactMatchBinding = binding
+            // print("Exact match found: \(binding.description ?? "N/A")")
+          }
+          // Don't break here, continue checking other bindings in case of ambiguities or errors
+        }
+      }
+    }
+
+    if let bindingToExecute = exactMatchBinding {
+      print("Executing action for binding: \(bindingToExecute.description ?? "No description")")
+      // TODO: Execute the action associated with the binding (Task 1b, 20-24)
+      // mySelf.actionExecutor.execute(action: bindingToExecute.action)
+
+      // Mark that an action was triggered
+      sequenceActionTriggered = true
+
+      // Reset sequence immediately after execution? Or wait for master key up?
+      // Resetting immediately prevents issues if user keeps typing after match.
+      currentSequence = []
+      // print("Sequence reset after action execution.")
+
+      // TODO: Provide feedback (e.g., success notification)? (Task 27)
+
+    } else if potentialMatches > 0 {
+      // It's a prefix of one or more bindings, but not an exact match yet.
+      // Do nothing, wait for the next key or timeout.
+      // The sequence timer is already running or will be started by the caller.
+    } else {
+      // No potential matches found (neither prefix nor exact).
+      // The sequence is invalid.
+      // print("Invalid sequence: \(currentSequence)")
+      // Reset the sequence
+      currentSequence = []
+      sequenceActionTriggered = false  // Ensure reset
+
+      // TODO: Provide feedback (e.g., error notification, visual cue)? (Task 18, 27b)
+    }
+  }
+
+  // MARK: - Helpers
 
   // Helper function to synthesize and post key events
   private func postSynthesizedKeyEvent(keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {

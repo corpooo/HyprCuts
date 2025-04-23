@@ -5,6 +5,7 @@
 //  Created by Andrei Corpodeanu on 17.04.2025.
 //
 
+import CoreGraphics  // Import for CGKeyCode and CGEventFlags
 import Foundation
 import Yams  // Make sure Yams is added via SPM
 
@@ -15,15 +16,15 @@ import Yams  // Make sure Yams is added via SPM
 
 struct AppConfig: Decodable {
   let masterKey: String
-  let sequenceTimeoutMs: Int // Keep this for sequence timeout (Task 16)
-  let masterKeyTapTimeoutMs: Int? // Use this for tap/hold differentiation, optional
+  let sequenceTimeoutMs: Int  // Keep this for sequence timeout (Task 16)
+  let masterKeyTapTimeoutMs: Int?  // Use this for tap/hold differentiation, optional
   let showSequenceNotification: Bool
-  let bindings: [Binding]
+  var bindings: [Binding]
 
   enum CodingKeys: String, CodingKey {
     case masterKey = "master_key"
-    case sequenceTimeoutMs = "sequence_timeout_ms" // Keep original key
-    case masterKeyTapTimeoutMs = "master_key_tap_timeout_ms" // Add the correct key
+    case sequenceTimeoutMs = "sequence_timeout_ms"  // Keep original key
+    case masterKeyTapTimeoutMs = "master_key_tap_timeout_ms"  // Add the correct key
     case showSequenceNotification = "show_sequence_notification"
     case bindings
   }
@@ -36,6 +37,20 @@ struct Binding: Decodable {
 
   // Add a property to store the parsed key sequence after decoding
   var parsedKeys: [(keyCode: CGKeyCode, modifiers: CGEventFlags)]? = nil
+
+  // Custom initializer to handle decoding and ignore parsedKeys
+  enum CodingKeys: String, CodingKey {
+    case keys, action, description
+    // We omit parsedKeys here as it's not in the YAML
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    keys = try container.decode([String].self, forKey: .keys)
+    action = try container.decode(Action.self, forKey: .action)
+    description = try container.decodeIfPresent(String.self, forKey: .description)
+    parsedKeys = nil  // Explicitly initialize parsedKeys to nil
+  }
 }
 
 enum Action: Decodable {
@@ -124,36 +139,40 @@ class ConfigManager {
 
       // Validate parsed config (Task 10a)
       guard let masterKeyCode = KeyMapping.getKeyCode(for: config.masterKey) else {
-          print(
-            "ERROR: Invalid configuration: 'master_key' ('\(config.masterKey)') does not correspond to a known key code."
-          )
-          handleConfigError()
-          return
+        print(
+          "ERROR: Invalid configuration: 'master_key' ('\(config.masterKey)') does not correspond to a known key code."
+        )
+        handleConfigError()
+        return
       }
       // AC3.2 validation: Ensure master_key is not a generic modifier represented by flags only.
-      if KeyMapping.getFlags(for: config.masterKey) != nil && KeyMapping.stringToKeyCodeMap[config.masterKey.lowercased()] == nil {
-           print(
-             "ERROR: Invalid configuration: 'master_key' ('\(config.masterKey)') cannot be a generic modifier key name (like cmd, shift, opt, ctrl). Use specific keys like lcmd, rshift, etc. if needed, or a non-modifier key."
-           )
-           handleConfigError()
-           return
+      if KeyMapping.getFlags(for: config.masterKey) != nil
+        && KeyMapping.stringToKeyCodeMap[config.masterKey.lowercased()] == nil
+      {
+        print(
+          "ERROR: Invalid configuration: 'master_key' ('\(config.masterKey)') cannot be a generic modifier key name (like cmd, shift, opt, ctrl). Use specific keys like lcmd, rshift, etc. if needed, or a non-modifier key."
+        )
+        handleConfigError()
+        return
       }
       // Further master key validation (e.g. against problematic keys) could go here (Task 19)
 
       // Parse and validate key bindings (Task 13 integration)
       for i in 0..<config.bindings.count {
-          var parsedSequence: [(keyCode: CGKeyCode, modifiers: CGEventFlags)] = []
-          for keyString in config.bindings[i].keys {
-              guard let parsedKey = KeyMapping.parseBindingKeyCombo(keyString: keyString) else {
-                  print("ERROR: Invalid key sequence in binding #\(i+1) ('\(config.bindings[i].description ?? "No description")'): Could not parse key '\(keyString)'.")
-                  // TODO: Log error properly (Task 12, 29)
-                  handleConfigError() // Invalidate the whole config for now
-                  return
-              }
-              parsedSequence.append(parsedKey)
+        var parsedSequence: [(keyCode: CGKeyCode, modifiers: CGEventFlags)] = []
+        for keyString in config.bindings[i].keys {
+          guard let parsedKey = KeyMapping.parseBindingKeyCombo(keyString: keyString) else {
+            print(
+              "ERROR: Invalid key sequence in binding #\(i+1) ('\(config.bindings[i].description ?? "No description")'): Could not parse key '\(keyString)'."
+            )
+            // TODO: Log error properly (Task 12, 29)
+            handleConfigError()  // Invalidate the whole config for now
+            return
           }
-          // Assign the successfully parsed sequence to the binding
-          config.bindings[i].parsedKeys = parsedSequence
+          parsedSequence.append(parsedKey)
+        }
+        // Assign the successfully parsed sequence to the binding
+        config.bindings[i].parsedKeys = parsedSequence
       }
 
       // If all validation passes, store the config
@@ -193,7 +212,7 @@ class ConfigManager {
     let lowercasedKey = key.lowercased()
     let hasFlags = KeyMapping.stringToFlagsMap[lowercasedKey] != nil
     let hasKeyCode = KeyMapping.stringToKeyCodeMap[lowercasedKey] != nil
-    return hasFlags && !hasKeyCode // It's a modifier-only string if it has flags but no direct keycode
+    return hasFlags && !hasKeyCode  // It's a modifier-only string if it has flags but no direct keycode
   }
 
   // MARK: - Error Handling Helper

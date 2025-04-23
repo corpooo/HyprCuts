@@ -6,7 +6,7 @@ This list tracks the implementation tasks derived from the v1 Acceptance Criteri
 
 - [ ] **1** **(AC1.1)** Implement core logic to define and trigger actions via master key + key sequence:
   - [x] **1a** **(AC1.1, AC3.4)** Implement initial core logic: Detect `master_key` press/hold and suppress its default OS behavior.
-  - [ ] **1b** **(AC1.1, AC3.5)** Implement key sequence listening framework activated by `master_key` hold and basic action triggering mechanism. (Current action: Debug print key event)
+  - [x] **1b** **(AC1.1, AC3.5)** Implement key sequence listening framework activated by `master_key` hold and basic action triggering mechanism. (Current action: Debug print key event)
 - [x] **2** **(AC1.2)** Set up the application to run as a background utility process.
 - [x] **3** **(AC7.1, AC7.2)** Implement Accessibility permissions check on startup.
 - [x] **4** **(AC7.2)** Provide user guidance to grant Accessibility permissions if missing.
@@ -30,7 +30,7 @@ This list tracks the implementation tasks derived from the v1 Acceptance Criteri
 - [ ] **15** **(AC3.6)** Allow any defined key (including modifiers) within `keys` arrays.
 - [ ] **16** **(AC3.8)** Implement key sequence timeout logic based on `sequence_timeout_ms` (time between keys in sequence).
 - [x] **16a** Implement master key tap/hold detection timeout based on `master_key_tap_timeout_ms`.
-- [ ] **17** **(AC3.9)** Implement key sequence matching with support for branching/resetting based on user input.
+- [x] **17** **(AC3.9)** Implement key sequence matching with support for branching/resetting based on user input.
 - [ ] **18** **(AC3.10)** Implement feedback and cancellation for invalid keys in the sequence.
 - [ ] **19** **(AC6.5)** Implement warning mechanism (log/notification) for potentially problematic `master_key` choices.
 
