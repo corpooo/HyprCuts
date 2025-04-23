@@ -249,9 +249,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         // --- Display Master Key --- (Task 27d)
-        let masterKey = configManager.getMasterKeyDisplayString() ?? "(Not Set)"
+        let masterKeyName = configManager.getMasterKeyDisplayString() ?? "(Not Set)"
+        let masterKeySymbol = KeyMapping.getDisplayString(for: masterKeyName)
         let masterKeyItem = NSMenuItem(
-            title: "Master Key: \(masterKey)", action: nil, keyEquivalent: "")
+            title: "Master Key: \(masterKeySymbol) (\(masterKeyName))", action: nil,
+            keyEquivalent: "")  // Show both symbol and name
         masterKeyItem.isEnabled = false
         menu.addItem(masterKeyItem)
 
@@ -266,6 +268,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         self.menu = menu  // Store the updated menu
         statusItem?.menu = menu  // Re-assign to status item if needed
     }
+
+    // MARK: - Helper Functions
+    // Removed custom getMasterKeySymbol function, using KeyMapping.getDisplayString instead.
 
     // Updates the menu bar icon and rebuilds menu content based on current state
     private func updateMenuBarState() {
