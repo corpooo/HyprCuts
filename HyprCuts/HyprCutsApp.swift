@@ -282,7 +282,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Rebuild the menu to reflect potential changes (like master key)
         constructMenu()
         // Notify keyboard monitor about the potential change
-        keyboardMonitor?.configDidChange()
+        keyboardMonitor?.updateConfigValues()
         print("Config reloaded and menu updated.")
     }
 

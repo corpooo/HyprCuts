@@ -14,6 +14,7 @@ enum HyprCutAction {
   case runShellCommand(command: String)
   case typeKeys(keys: [String])
   case debugPrintKeyEvent(event: NSEvent)  // Keeping debug action
+  case resetSequenceState  // Added for v2 reset action (Task 25)
 }
 
 class ActionExecutor {
@@ -28,6 +29,8 @@ class ActionExecutor {
       handleTypeKeys(keys: keys)
     case .debugPrintKeyEvent(let event):
       handleDebugPrintKeyEvent(event: event)
+    case .resetSequenceState:
+      handleResetSequenceState()  // Call new handler
     }
   }
 
@@ -153,6 +156,16 @@ class ActionExecutor {
     let keysDescription = keys.joined(separator: ", ")  // Simpler join for strings
     print("ActionExecutor [Mock]: Executing typeKeys with keys=[\(keysDescription)]")
     // Actual implementation will involve CGEvent posting and parsing these strings
+  }
+
+  // MARK: - New v2 Action Handler
+
+  private func handleResetSequenceState() {
+    // This function will likely need to interact with KeyboardMonitor
+    // to tell it to reset its internal sequence state.
+    // For now, just print a message.
+    print("ActionExecutor: Executing resetSequenceState action.")
+    // TODO: Implement interaction with KeyboardMonitor to reset its state (Task 1b, 25)
   }
 
   // MARK: - Existing Debug Handler (No changes needed below)

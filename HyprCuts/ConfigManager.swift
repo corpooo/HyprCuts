@@ -12,38 +12,63 @@ import Yams  // Make sure Yams is added via SPM
 // NOTE: Add 'Yams' dependency via SPM: https://github.com/jpsim/Yams.git
 // import Yams
 
-// MARK: - Configuration Data Structures (Task 10)
+// MARK: - v2 Configuration Data Structures (Task 10)
+
+// Represents a node in the key binding tree (v2 AC1.1)
+enum BindingNode: Decodable {
+  case branch(nodes: [String: BindingNode])
+  case leaf(action: Action?)  // Action is optional for leaves without explicit actions
+
+  // Custom Decodable initializer to handle the nested structure
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    // Try decoding as a dictionary first (branch)
+    if let nodes = try? container.decode([String: BindingNode].self) {
+      // Check if it's an empty dictionary, which signifies a leaf with no action
+      if nodes.isEmpty {
+        self = .leaf(action: nil)
+      } else {
+        self = .branch(nodes: nodes)
+      }
+    }
+    // If dictionary fails, try decoding as an Action (leaf)
+    else if let action = try? container.decode(Action.self) {
+      self = .leaf(action: action)
+    }
+    // If both fail, it's an invalid structure
+    else {
+      throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription:
+          "Invalid binding node structure: Expected either a nested dictionary (branch) or an action object (leaf)."
+      )
+    }
+  }
+}
 
 struct AppConfig: Decodable {
   let masterKey: String
-  let masterKeyTapTimeoutMs: Int?  // Use this for tap/hold differentiation, optional
+  // sequence_timeout_ms: DEPRECATED (Task 13)
+  let masterKeyTapTimeoutMs: Int?  // Retained for tap/hold differentiation
   let showSequenceNotification: Bool
-  var bindings: [Binding]
+  let bindings: [String: BindingNode]  // Changed from [Binding] to nested dictionary (Task 8, 10)
 
   enum CodingKeys: String, CodingKey {
     case masterKey = "master_key"
-    case masterKeyTapTimeoutMs = "master_key_tap_timeout_ms"  // Add the correct key
+    case masterKeyTapTimeoutMs = "master_key_tap_timeout_ms"
     case showSequenceNotification = "show_sequence_notification"
-    case bindings
+    case bindings  // Changed from [Binding]
   }
 }
 
-struct Binding: Decodable {
-  let keys: [String]
-  let action: Action
-  let description: String?  // Optional description
-
-  // Custom initializer to handle decoding and ignore parsedKeys
-  enum CodingKeys: String, CodingKey {
-    case keys, action, description
-    // We omit parsedKeys here as it's not in the YAML
-  }
-}
+// The old Binding struct is removed (Tasks 10, 14)
+// struct Binding: Decodable { ... }
 
 enum Action: Decodable {
   case openApp(target: String)
   case shellCommand(command: String)
   case keys(keys: [String])
+  case reset  // New action type for v2 (Task 25, v2 AC1.5)
 
   // Custom Decodable implementation for action types
   private enum CodingKeys: String, CodingKey {
@@ -56,15 +81,25 @@ enum Action: Decodable {
     case .openApp(let target):
       return .openApp(target: target)
     case .shellCommand(let command):
-      return .runShellCommand(command: command)  // Ensure case name matches HyprCutAction
+      return .runShellCommand(command: command)
     case .keys(let keys):
-      return .typeKeys(keys: keys)  // Pass [String] directly
-    // No default needed as all Action cases are covered
+      return .typeKeys(keys: keys)
+    case .reset:
+      return .resetSequenceState  // Assuming HyprCutAction has this case
+    // TODO: Add .resetSequenceState to HyprCutAction enum
     }
   }
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+
+    // Check for the 'reset' type first as it has no other arguments
+    if let type = try? container.decode(String.self, forKey: .type), type == "reset" {
+      self = .reset
+      return  // Exit early for reset type
+    }
+
+    // Proceed with other types if not 'reset'
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
@@ -75,13 +110,13 @@ enum Action: Decodable {
       let command = try container.decode(String.self, forKey: .command)
       self = .shellCommand(command: command)
     case "keys":
-      // Decode directly into [String], remove parsing to [ParsedKey]
       let keyStrings = try container.decode([String].self, forKey: .keys)
-      self = .keys(keys: keyStrings)  // Assign [String]
+      self = .keys(keys: keyStrings)
+    // Removed 'default' case to ensure all action types must be explicitly handled or throw error below
     default:
-      // Improve error message for clarity
+      // Improved error message for clarity
       let debugDesc =
-        "Invalid action type '\(type)' found in config. Expected 'open_app', 'shell_command', or 'keys'."
+        "Invalid action type '\\(type)' found in config. Expected 'open_app', 'shell_command', 'keys', or 'reset'."  // Updated expected types
       throw DecodingError.dataCorruptedError(
         forKey: .type, in: container, debugDescription: debugDesc)
     }
@@ -251,7 +286,7 @@ class ConfigManager {
   }
 
   /// Returns the list of bindings.
-  func getBindings() -> [Binding]? {
+  func getBindings() -> [String: BindingNode]? {
     return currentConfig?.bindings
   }
 

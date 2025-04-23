@@ -25,6 +25,7 @@ class KeyboardMonitor {
 
   // MARK: - Dependencies
   private let actionExecutor: ActionExecutor
+  private let configManager = ConfigManager.shared  // Access config
 
   // MARK: - Event Tap Properties
   private var eventTap: CFMachPort?
@@ -41,9 +42,10 @@ class KeyboardMonitor {
   private var masterKeyHeldTimer: Timer? = nil  // Timer to detect hold
   private var isMasterKeyHeldProcessing = false  // True between master keyDown and timer fire/keyUp
 
-  // State for Sequence detection
-  private var currentSequence: [(keyCode: CGKeyCode, modifiers: CGEventFlags)] = []
-  private var sequenceActionTriggered = false  // Flag to indicate a sequence completed and triggered an action
+  // MARK: - v2 Sequence State
+  private var rootBindings: [String: BindingNode]? = nil  // Store the root of the bindings tree
+  private var currentBindingNode: BindingNode? = nil  // Current node in the binding tree (nil = root)
+  private var currentBindingPath: [String] = []  // Path taken to reach currentBindingNode
 
   // TODO: Replace with actual value from config loading (Task 10)
   // private var tapTimeoutMs: Int = 200  // Milliseconds to differentiate tap/hold
@@ -145,6 +147,7 @@ class KeyboardMonitor {
           // Start the timer to detect a hold
           // Use the configured tap timeout directly (default handled by ConfigManager)
           let timeout = Double(mySelf.configuredTapTimeoutMs) / 1000.0
+          print("DEBUG: Starting master key hold timer with timeout: \(timeout)s")
           mySelf.masterKeyHeldTimer = Timer.scheduledTimer(
             timeInterval: timeout,
             target: mySelf,
@@ -165,6 +168,9 @@ class KeyboardMonitor {
             mySelf.masterKeyHeldTimer?.invalidate()  // Cancel the timer
             mySelf.masterKeyHeldTimer = nil
             mySelf.isMasterKeyHeldProcessing = false  // Done processing
+
+            // Reset v2 sequence state if tap occurs unexpectedly during processing
+            mySelf.resetSequenceStateInternal()
 
             // Re-post the down/up events for the tap, temporarily disabling our tap
             if let downCode = mySelf.pendingMasterKeyDownCode, let currentTap = mySelf.eventTap {
@@ -195,12 +201,13 @@ class KeyboardMonitor {
             // KeyUp happened *after* the timer fired - it's the end of a HOLD
             // print("Master key HELD released.")
             mySelf.isMasterKeyDown = false  // No longer held
+            print("DEBUG: Master key released (Hold ended). Resetting sequence state.")
             // Clear stored info
             mySelf.pendingMasterKeyDownCode = nil
             mySelf.pendingMasterKeyDownFlags = nil
 
-            // Reset the flag indicating an action was triggered by this sequence
-            mySelf.sequenceActionTriggered = false
+            // Reset v2 sequence state on master key release
+            mySelf.resetSequenceStateInternal()
 
             return nil
           } else {
@@ -214,17 +221,14 @@ class KeyboardMonitor {
         if mySelf.isMasterKeyDown {
           // Master key is confirmed HELD, this is part of a sequence
           if type == .keyDown {
-            // Get keycode and flags for the incoming key
-            let sequenceKeyCode = CGKeyCode(nsEvent.keyCode)
-            let sequenceFlags = event.flags  // Use the raw flags from the CGEvent
-
-            // Append to the current sequence
-            mySelf.currentSequence.append((keyCode: sequenceKeyCode, modifiers: sequenceFlags))
-            // print("Added to sequence: \(mySelf.currentSequence.last!), Current full: \(mySelf.currentSequence)")
-
-            // Process the updated sequence
-            mySelf.processCurrentSequence()
-
+            // Convert the pressed key event to its string representation
+            if let keyString = mySelf.keyStringFromEvent(event) {
+              print("DEBUG: Sequence Key Down: \(keyString)")
+              mySelf.processSequenceKey(keyString: keyString)
+            } else {
+              print("WARN: Could not get string representation for key code \(keyCode)")
+              // Optionally provide feedback for unrecognized keys
+            }
           }
           // Suppress other keys (down and up) while master key is held
           // print("Suppressing sequence key event (Code: \(keyCode), Type: \(type.rawValue))")
@@ -282,15 +286,15 @@ class KeyboardMonitor {
   // MARK: - Configuration Handling
 
   /// Updates the monitor's behavior based on the current ConfigManager state.
-  private func updateConfigValues() {
+  func updateConfigValues() {
     print("KeyboardMonitor: Updating config values...")
     // Reset state that depends on config
     self.configuredMasterKeyCode = nil
     self.isMasterKeyDown = false
     self.isMasterKeyHeldProcessing = false
     self.masterKeyHeldTimer?.invalidate()
-    self.currentSequence = []
-    self.sequenceActionTriggered = false
+    self.currentBindingNode = nil
+    self.currentBindingPath = []
 
     let configManager = ConfigManager.shared
     if let masterKeyString = configManager.getMasterKey(),
@@ -302,6 +306,12 @@ class KeyboardMonitor {
     }
     self.configuredTapTimeoutMs = configManager.getMasterKeyTapTimeout()
 
+    // Load the v2 bindings tree
+    self.rootBindings = configManager.getBindings()
+    if self.rootBindings == nil || self.rootBindings!.isEmpty {
+      print("KeyboardMonitor: WARNING - No bindings loaded or bindings are empty.")
+    }
+
     print(
       "KeyboardMonitor: Config updated. MasterKeyCode: \(String(describing: configuredMasterKeyCode)), TapTimeout: \(configuredTapTimeoutMs)ms"
     )
@@ -310,17 +320,10 @@ class KeyboardMonitor {
     // For now, assumes restart happens externally if needed.
 
     // Reset sequence state if config changes
-    resetSequenceState()
+    resetSequenceStateInternal()  // Use internal version
   }
 
   /// Called when the configuration has potentially changed.
-  func configDidChange() {
-    print("KeyboardMonitor: Configuration change detected, updating values...")
-    updateConfigValues()
-    // TODO: Reset sequence state if master key changed?
-  }
-
-  // Called by the masterKeyHeldTimer when the tapTimeoutMs is exceeded
   @objc private func masterKeyHeldTimerFired(_ timer: Timer) {
     // Timer fired, meaning the key was held down long enough
     masterKeyHeldTimer = nil  // Timer is non-repeating
@@ -329,101 +332,12 @@ class KeyboardMonitor {
       isMasterKeyDown = true  // Set the state to indicate master key is officially held
       isMasterKeyHeldProcessing = false  // Done with initial processing
 
-      // Reset sequence state when hold begins
-      currentSequence = []
-      sequenceActionTriggered = false
-
-      // TODO: Show sequence input UI if configured
-      // TODO: Notify delegate/callback about sequence start
+      // Reset v2 sequence state if tap occurs unexpectedly during processing
+      resetSequenceStateInternal()
 
       // Since the original keyDown was suppressed, we don't need to do anything else here.
       // The subsequent key events will be handled based on isMasterKeyDown.
     }
-  }
-
-  // MARK: - Sequence Processing (Task 17)
-
-  private func processCurrentSequence() {
-    guard let bindings = ConfigManager.shared.currentConfig?.bindings else {
-      // print("No bindings configured.")
-      resetSequenceState()  // No bindings, reset
-      return
-    }
-
-    // print("Processing sequence: \(currentSequence.map { $0.keyCode }) (len: \(currentSequence.count))")
-
-    var potentialMatchFound = false
-    var exactMatchFound = false
-
-    for binding in bindings {
-      // Skip bindings that don't have parsed sequence keys (shouldn't happen with current logic)
-      // guard let parsedSequenceKeys = binding.parsedKeys else { continue }
-
-      // Parse the binding's key sequence strings on the fly
-      var parsedBindingSequence: [ParsedKey] = []
-      var parseError = false
-      for keyString in binding.keys {
-        guard let parsedKey = KeyMapping.parseBindingKeyCombo(keyString: keyString) else {
-          print(
-            "ERROR: Could not parse key '\(keyString)' in binding '\(binding.description ?? "?")' during sequence check."
-          )
-          parseError = true
-          break  // Stop parsing this binding
-        }
-        parsedBindingSequence.append(parsedKey)
-      }
-      if parseError { continue }  // Skip binding if keys couldn't be parsed
-
-      // Check if the current sequence is a prefix of this binding's sequence
-      if currentSequence.count <= parsedBindingSequence.count {
-        // Compare key codes only for prefix matching
-        let currentSequenceKeyCodes = currentSequence.map { $0.keyCode }
-        let bindingKeyCodes = parsedBindingSequence.map { $0.keyCode }
-
-        if bindingKeyCodes.starts(with: currentSequenceKeyCodes) {
-          potentialMatchFound = true
-          // Check for exact match (length and key codes)
-          if currentSequence.count == parsedBindingSequence.count {
-            // For exact match, we might eventually want to compare modifiers too,
-            // but for now, key code sequence is enough.
-            print("Exact match found for binding: \(binding.description ?? "No description")")
-
-            // Convert Action to HyprCutAction using the new computed property
-            if let hyprAction = binding.action.hyprCutAction {
-              actionExecutor.execute(action: hyprAction)
-            } else {
-              // This should ideally not happen if the conversion logic is complete
-              print(
-                "ERROR: Could not convert Action to HyprCutAction for binding: \(binding.description ?? "?")"
-              )
-            }
-
-            exactMatchFound = true
-            sequenceActionTriggered = true  // Set the flag
-            break  // Stop checking other bindings once an exact match is found
-          }
-        }
-      }
-    }
-
-    // If an exact match was found, reset the sequence
-    if exactMatchFound {
-      print("Resetting sequence after exact match.")
-      resetSequenceState()
-    } else if !potentialMatchFound {
-      // If the current sequence doesn't match the start of *any* binding,
-      // it's invalid. Reset the sequence.
-      print("Current sequence does not match any binding prefix. Resetting.")
-      // TODO: Implement feedback/cancellation (Task 18)
-      resetSequenceState()
-    }
-    // If potential matches were found but no exact match yet, do nothing - wait for more keys.
-  }
-
-  private func resetSequenceState() {
-    // print("Resetting sequence state.")
-    currentSequence = []
-    // Keep sequenceActionTriggered as is, it's reset on Master Key Up
   }
 
   // MARK: - Helpers
@@ -440,8 +354,180 @@ class KeyboardMonitor {
       return
     }
     keyEvent.flags = flags
-    // Post back to the session tap location - this is safe because we disable our tap before calling this
     keyEvent.post(tap: .cgSessionEventTap)
-    // print("Posted synthesized key event to Session Tap (KeyDown: \(keyDown), Code: \(keyCode), Flags: \(flags.rawValue))")
   }
+
+  private func resetSequenceStateInternal() {
+    currentBindingNode = nil
+    currentBindingPath = []
+    print("DEBUG: Sequence state reset.")
+  }
+
+  private func keyStringFromEvent(_ event: CGEvent) -> String? {
+    let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+    let flags = event.flags
+    // Use the function that gets string from keyCode only for sequence matching.
+    return KeyMapping.getString(for: keyCode)
+  }
+
+  // MARK: - Tree Traversal Logic (v2)
+
+  private func processSequenceKey(keyString: String) {
+    guard let rootBindings = self.rootBindings, !rootBindings.isEmpty else {
+      print("WARN: No bindings loaded or bindings are empty, cannot process sequence key.")
+      resetSequenceStateInternal()  // Reset if bindings disappear or are empty
+      return
+    }
+
+    print(
+      "DEBUG: Processing sequence key: \"\(keyString)\". Current path: [\(currentBindingPath.joined(separator: ", "))]"
+    )
+
+    var nodeFound = false
+
+    // 1. Check children of current node (AC2.3a)
+    if let currentNode = self.currentBindingNode, case .branch(let children) = currentNode {
+      if let nextNode = children[keyString] {
+        print("DEBUG: Found key '\(keyString)' as child of current node.")
+        self.currentBindingPath.append(keyString)
+        self.currentBindingNode = nextNode
+        nodeFound = true
+        checkAndExecuteAction()
+        return  // Found and processed
+      }
+    }
+
+    // 2. If not found in children OR if at root/leaf, check from root and ancestors (AC2.3b)
+    if !nodeFound {
+      // Check root first
+      if let rootNode = rootBindings[keyString] {
+        print("DEBUG: Found key '\(keyString)' at root level.")
+        self.currentBindingPath = [keyString]  // Start new path from root
+        self.currentBindingNode = rootNode
+        nodeFound = true
+        checkAndExecuteAction()
+        return  // Found and processed
+      }
+
+      // TODO: Implement ancestor search if needed. The current logic prioritizes
+      // restarting from the root if the key isn't a direct child. This might
+      // deviate slightly from AC2.3b's strict "traverse up" but often provides
+      // a more intuitive user experience (e.g., master->O->A, then press X,
+      // triggers root X instead of erroring). If strict ancestor-only lookup
+      // is required, this section needs modification.
+
+      /* // Example of strict ancestor search (if desired over root restart):
+      for i in stride(from: currentBindingPath.count - 1, through: 0, by: -1) {
+          let ancestorPath = Array(currentBindingPath.prefix(i))
+          if let ancestorNode = getNode(at: ancestorPath), case .branch(let ancestorChildren) = ancestorNode {
+              if let nextNode = ancestorChildren[keyString] {
+                   print("DEBUG: Found key '\(keyString)' as child of ancestor at path [\\(ancestorPath.joined(separator: ", "))]")
+                   self.currentBindingPath = ancestorPath + [keyString]
+                   self.currentBindingNode = nextNode
+                   nodeFound = true
+                   checkAndExecuteAction()
+                   return // Found and processed
+              }
+          }
+          // Also check root level within the loop if current path is not empty
+           if i == 0 && currentBindingPath.count > 0 { // Check root only once if not already found
+               if let rootNode = rootBindings[keyString] {
+                   print("DEBUG: Found key '\(keyString)' at root level (during ancestor check).")
+                   self.currentBindingPath = [keyString] // Start new path from root
+                   self.currentBindingNode = rootNode
+                   nodeFound = true
+                   checkAndExecuteAction()
+                   return // Found and processed
+               }
+           }
+      }
+      */
+
+    }
+
+    // 4. If not found anywhere (AC2.3c)
+    if !nodeFound {
+      print(
+        "DEBUG: Invalid key '\(keyString)' for current sequence path [\\(currentBindingPath.joined(separator: ",
+        "))]. No change in state."
+      )
+      // TODO: Implement user feedback (toast/log) for invalid key (Task 18, AC4.3)
+    }
+  }
+
+  private func checkAndExecuteAction() {
+    guard let node = currentBindingNode else { return }  // Should have a node if we got here
+
+    print(
+      "DEBUG: Checking action for node at path: [\(currentBindingPath.joined(separator: ", "))]")
+
+    switch node {
+    case .leaf(let action):
+      if let action = action {
+        print("DEBUG: Found action at leaf node: \(action)")
+        if let hyprAction = action.hyprCutAction {
+          actionExecutor.execute(action: hyprAction)
+          // Action executed, revert state (AC2.4a)
+          revertToParentNode()
+        } else {
+          print("WARN: Could not convert config Action to executable HyprCutAction.")
+          // Decide if state should revert even if action conversion fails
+          revertToParentNode()
+        }
+      } else {
+        // Leaf node with no action defined (AC2.4b)
+        print("DEBUG: Found leaf node with no action.")
+        revertToParentNode()
+      }
+    case .branch:
+      // Branch node, do nothing, wait for next key (AC2.4c)
+      print("DEBUG: Reached branch node. Waiting for next key.")
+      // TODO: Update notification with current path if enabled (AC4.3)
+      break  // Explicitly do nothing
+    }
+  }
+
+  private func revertToParentNode() {
+    if !currentBindingPath.isEmpty {
+      currentBindingPath.removeLast()
+      print("DEBUG: Reverted path to: [\(currentBindingPath.joined(separator: ", "))]")
+      // Update currentBindingNode based on the new path
+      currentBindingNode = getNode(at: currentBindingPath)
+    } else {
+      // If path is empty, we are back at the root
+      currentBindingNode = nil
+      print("DEBUG: Reverted path to root.")
+    }
+  }
+
+  // Helper to get node at a specific path from root
+  private func getNode(at path: [String]) -> BindingNode? {
+    guard let bindings = rootBindings else { return nil }
+    var currentNode: [String: BindingNode]? = bindings
+    var resultNode: BindingNode? = nil  // Conceptually represents the root if path is empty
+
+    for key in path {
+      guard let currentDict = currentNode, let nextNode = currentDict[key] else {
+        print("WARN: Path [\(path.joined(separator: ", "))] became invalid during traversal.")
+        return nil  // Path is invalid
+      }
+      resultNode = nextNode
+      if case .branch(let nodes) = nextNode {
+        currentNode = nodes
+      } else {
+        currentNode = nil  // Reached a leaf, stop descending
+      }
+    }
+    return resultNode
+  }
+
+  // Public function to be called by ActionExecutor or other components
+  public func resetSequenceState() {  // Make explicitly public
+    print("DEBUG: Public resetSequenceState called.")
+    resetSequenceStateInternal()
+  }
+
+  // MARK: - Configuration Update
+
+  // ... existing code ...
 }

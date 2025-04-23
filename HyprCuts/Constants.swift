@@ -115,8 +115,15 @@ struct KeyMapping {
 
     // Reverse map: CGKeyCode to a primary String representation (for display/logging)
     // We choose one primary representation (e.g., lowercase letter, full name for special keys)
-    static let keyCodeToStringMap: [CGKeyCode: String] = Dictionary(
-        uniqueKeysWithValues: stringToKeyCodeMap.map { ($1, $0) })
+    static let keyCodeToStringMap: [CGKeyCode: String] = {
+        // Group strings by their keycode
+        let groupedByKeyCode = Dictionary(grouping: stringToKeyCodeMap, by: { $0.value })
+        // For each keycode, choose the shortest string alias as the primary representation
+        return groupedByKeyCode.mapValues { entries -> String in
+            // Find the entry with the shortest key (string alias)
+            return entries.min(by: { $0.key.count < $1.key.count })?.key ?? "unknown"
+        }
+    }()
 
     // Helper to get KeyCode from string
     static func getKeyCode(for string: String) -> CGKeyCode? {

@@ -1,41 +1,40 @@
-# Global settings for HyprCuts
-master_key: "slash" # Forward Slash key as the master key (using string representation)
-sequence_timeout_ms: 1000 # 1 second timeout between sequence key presses
+# Global settings for HyprCuts (v2 Schema)
+master_key: "slash" # Forward Slash key as the master key
+# sequence_timeout_ms: 1000 # DEPRECATED in v2
 show_sequence_notification: true # Show visual feedback for sequences
+master_key_tap_timeout_ms: 200 # Retained for tap vs hold detection
 
-# List of key bindings
+# Key bindings (v2 Tree Structure)
+# Keys represent the sequence pressed after the master_key
 bindings:
-  - keys: ["s", "a"] # Renamed from sequence. Master + S + A
-    action:
-      type: "open_app"
-      target: "Safari" # Can be app name or bundle ID (e.g., "com.apple.Safari")
-    description: "Open Safari" # Renamed from name and moved
-
-  - keys: ["e", "h"] # Renamed from sequence. Master + E + H
-    action:
-      type: "shell_command"
-      command: "echo 'Hello from HyprCuts!'"
-    description: "Echo Hello" # Renamed from name and moved
-
-  - keys: ["t", "g"] # Renamed from sequence. Master + T + G
-    action:
-      type: "keys"
-      keys:
-        - "H"
-        - "y"
-        - "p"
-        - "r"
-        - "C"
-        - "u"
-        - "t"
-        - "s"
-        - "!"
-        - "enter" # Example of a special key
-    description: "Type Greeting" # Renamed from name and moved
-
-  - keys: ["p", "v"] # Renamed from sequence. Master + P + V
-    action:
-      type: "keys"
-      keys:
-        - "lcmd+v" # Example of modifier combination
-    description: "Paste with Cmd+V" # Renamed from name and moved
+  s: # Master -> S
+    a: # Master -> S -> A
+      # action object defines what happens at the end of this sequence
+      { type: "open_app", target: "Safari" } # Opens Safari
+  e: # Master -> E
+    h: # Master -> E -> H
+      { type: "shell_command", command: "echo 'Hello from HyprCuts v2!'" }
+  t: # Master -> T
+    g: # Master -> T -> G
+      {
+        type: "keys",
+        keys: ["H", "y", "p", "r", "C", "u", "t", "s", "!", "enter"],
+      }
+  p: # Master -> P
+    v: # Master -> P -> V
+      { type: "keys", keys: ["lcmd+v"] } # Pastes using Cmd+V (Note: Ensure 'lcmd+v' is handled correctly by the 'keys' action parser, or list them separately if needed: ["lcmd", "v"])
+  n: # Master -> N (Example of deeper nesting)
+    o: # Master -> N -> O
+      t: # Master -> N -> O -> T
+        e: # Master -> N -> O -> T -> E
+          { type: "shell_command", command: "echo 'Deep Note!'" }
+      r: # Master -> N -> O -> R (Example sibling branch)
+        s: # Master -> N -> O -> R -> S
+          { type: "reset" } # Resets the sequence state back to root
+  x: # Master -> X (Example of a node with no action, state reverts to parent (root) after pressing X)
+    {}
+  y: # Master -> Y (Example branch node, stays at Y waiting for next key)
+    a: # Master -> Y -> A
+      { type: "shell_command", command: "echo 'YA Action'" }
+    b: # Master -> Y -> B
+      { type: "shell_command", command: "echo 'YB Action'" }
