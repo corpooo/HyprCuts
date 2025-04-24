@@ -382,15 +382,14 @@ class KeyboardMonitor: ObservableObject {
   private func resetSequenceStateInternal() {
     logger.debug("Resetting sequence state. Path cleared.")
     // Only update if the path is not already empty to avoid unnecessary publishes
-    if !currentBindingPath.isEmpty {
-      currentBindingPath = []  // <-- Update published property
+    if !self.currentBindingPath.isEmpty {
+      self.currentBindingPath = []  // <-- Update published property
     }
-    currentBindingNode = nil  // Reset to root context
+    self.currentBindingNode = nil  // Reset to root context
   }
 
   private func keyStringFromEvent(_ event: CGEvent) -> String? {
     let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-    let flags = event.flags
     // Use the function that gets string from keyCode only for sequence matching.
     return KeyMapping.getString(for: keyCode)
   }
@@ -400,12 +399,12 @@ class KeyboardMonitor: ObservableObject {
   private func processSequenceKey(keyString: String) {
     guard let rootBindings = self.rootBindings, !rootBindings.isEmpty else {
       logger.warning("No bindings loaded or bindings are empty, cannot process sequence key.")
-      resetSequenceStateInternal()  // Reset if bindings disappear or are empty
+      self.resetSequenceStateInternal()  // Reset if bindings disappear or are empty
       return
     }
 
     logger.debug(
-      "Processing sequence key: \"\(keyString)\". Current path: [\(currentBindingPath.joined(separator: ", "))]"
+      "Processing sequence key: \"\(keyString)\". Current path: [\(self.currentBindingPath.joined(separator: ", "))]"
     )
 
     var nodeFound = false
@@ -417,7 +416,7 @@ class KeyboardMonitor: ObservableObject {
         self.currentBindingPath.append(keyString)
         self.currentBindingNode = nextNode
         nodeFound = true
-        checkAndExecuteAction()
+        self.checkAndExecuteAction()
         return  // Found and processed
       }
     }
@@ -425,12 +424,12 @@ class KeyboardMonitor: ObservableObject {
     // 2. If not found in children OR if at root/leaf, check from root and ancestors (AC2.3b)
     if !nodeFound {
       // Check root first
-      if let rootNode = rootBindings[keyString] {
+      if let rootNode = self.rootBindings?[keyString] {
         logger.debug("Found key '\(keyString)' at root level.")
         self.currentBindingPath = [keyString]  // Start new path from root
         self.currentBindingNode = rootNode
         nodeFound = true
-        checkAndExecuteAction()
+        self.checkAndExecuteAction()
         return  // Found and processed
       }
 
@@ -442,26 +441,26 @@ class KeyboardMonitor: ObservableObject {
       // is required, this section needs modification.
 
       /* // Example of strict ancestor search (if desired over root restart):
-      for i in stride(from: currentBindingPath.count - 1, through: 0, by: -1) {
-          let ancestorPath = Array(currentBindingPath.prefix(i))
-          if let ancestorNode = getNode(at: ancestorPath), case .branch(let ancestorChildren) = ancestorNode {
+      for i in stride(from: self.currentBindingPath.count - 1, through: 0, by: -1) {
+          let ancestorPath = Array(self.currentBindingPath.prefix(i))
+          if let ancestorNode = self.getNode(at: ancestorPath), case .branch(let ancestorChildren) = ancestorNode {
               if let nextNode = ancestorChildren[keyString] {
                    logger.trace("Found key '\(keyString)' as child of ancestor at path [\(ancestorPath.joined(separator: ", "))]")
                    self.currentBindingPath = ancestorPath + [keyString]
                    self.currentBindingNode = nextNode
                    nodeFound = true
-                   checkAndExecuteAction()
+                   self.checkAndExecuteAction()
                    return // Found and processed
               }
           }
           // Also check root level within the loop if current path is not empty
-           if i == 0 && currentBindingPath.count > 0 { // Check root only once if not already found
-               if let rootNode = rootBindings[keyString] {
+           if i == 0 && self.currentBindingPath.count > 0 { // Check root only once if not already found
+               if let rootNode = self.rootBindings[keyString] {
                    logger.trace("Found key '\(keyString)' at root level (during ancestor check).")
                    self.currentBindingPath = [keyString] // Start new path from root
                    self.currentBindingNode = rootNode
                    nodeFound = true
-                   checkAndExecuteAction()
+                   self.checkAndExecuteAction()
                    return // Found and processed
                }
            }
@@ -473,92 +472,105 @@ class KeyboardMonitor: ObservableObject {
     // 4. If not found anywhere (AC2.3c)
     if !nodeFound {
       logger.debug(
-        "Invalid key '\(keyString)' for current sequence path [\(currentBindingPath.joined(separator: ", "))]. No change in state."
+        "Invalid key '\(keyString)' for current sequence path [\(self.currentBindingPath.joined(separator: ", "))]. No change in state."
       )
       // TODO: Implement user feedback (toast/log) for invalid key (Task 18, AC4.3)
     }
   }
 
   private func checkAndExecuteAction() {
-    guard let node = currentBindingNode else { return }  // Should have a node if we got here
-    guard let lastKey = currentBindingPath.last else {
+    guard let node = self.currentBindingNode else { return }
+    guard let lastKey = self.currentBindingPath.last else {
       logger.warning("checkAndExecuteAction called with empty path. Cannot determine slot key.")
-      resetSequenceStateInternal()  // Reset if path is unexpectedly empty
+      self.resetSequenceStateInternal()
       return
     }
 
     logger.debug(
-      "Checking action for node at path: [\(currentBindingPath.joined(separator: ", "))]")
+      "Checking action for node at path: [\(self.currentBindingPath.joined(separator: ", "))]"
+    )
 
     switch node {
-    case .leaf(let configAction):  // Renamed 'action' to 'configAction' for clarity
+    case .leaf(let configAction):
       if let configAction = configAction {
+        // Action leaf
         logger.debug("Found action at leaf node: \(configAction)")
+        var actionToExecute: HyprCutAction? = nil
 
-        var hyprActionToExecute: HyprCutAction? = nil
-
-        // Handle Harpoon actions specifically to pass the slotKey
+        // Determine the action, handling Harpoon specifically
         switch configAction {
         case .harpoonSet:
-          hyprActionToExecute = .harpoonSet(slotKey: lastKey)
+          actionToExecute = .harpoonSet(slotKey: lastKey)
         case .harpoonRm:
-          hyprActionToExecute = .harpoonRm(slotKey: lastKey)
+          actionToExecute = .harpoonRm(slotKey: lastKey)
         case .harpoonGo:
-          hyprActionToExecute = .harpoonGo(slotKey: lastKey)
+          actionToExecute = .harpoonGo(slotKey: lastKey)
         case .harpoonReset:
-          hyprActionToExecute = .harpoonReset  // No slotKey needed
+          actionToExecute = HyprCutAction.harpoonReset
         default:
-          // For other actions, use the existing conversion
-          hyprActionToExecute = configAction.hyprCutAction
+          actionToExecute = configAction.hyprCutAction  // Use converter for others
         }
 
-        if let finalAction = hyprActionToExecute {
-          // Signal completion *before* executing and resetting
-          // Pass a copy of the path as it is *right now*
-          logger.debug("Signaling sequence completion for path: \(currentBindingPath)")
-          onSequenceCompleted?(currentBindingPath)
-
-          logger.debug("Executing action: \(finalAction)")
-          actionExecutor.execute(action: finalAction)
-
-          // Reset state immediately now that we've signaled
-          revertToParentNode()
+        // Execute if an action was determined
+        if let finalAction = actionToExecute {
+          self.executeAndRevert(action: finalAction)
         } else {
-          logger.warning(
-            "Could not determine executable HyprCutAction for config action: \(configAction)")
-          // If action conversion fails, maybe don't signal completion?
-          // Or signal and let UI decide? For now, let's just reset.
-          revertToParentNode()
+          // Log if converter failed for a non-Harpoon action
+          switch configAction {
+          case .harpoonSet, .harpoonRm, .harpoonGo, .harpoonReset:
+            // Don't log warning if a harpoon action couldn't be converted (shouldn't happen)
+            break
+          default:
+            // Log warning only for non-harpoon actions that failed conversion
+            logger.warning(
+              "Could not convert config Action to executable HyprCutAction: \(configAction)")
+          }
+          // Revert even if action is nil or fails conversion
+          self.revertToParentNode()
         }
+
       } else {
         // Leaf node with no action defined (AC2.4b)
         logger.debug("Found leaf node with no action.")
-        // No action, so don't signal completion. Just revert.
-        revertToParentNode()
+        self.revertToParentNode()
       }
+
     case .branch:
       // Branch node, do nothing, wait for next key (AC2.4c)
       logger.debug("Reached branch node. Waiting for next key.")
+      // No state change needed here, just wait for the next key event
       break
     }
   }
 
+  // Helper function to execute action and revert state
+  private func executeAndRevert(action: HyprCutAction) {
+    logger.debug("Signaling sequence completion for path: \(self.currentBindingPath)")
+    self.onSequenceCompleted?(self.currentBindingPath)
+
+    logger.debug("Executing action: \(action)")
+    self.actionExecutor.execute(action: action)
+
+    // Reset state immediately after executing
+    self.revertToParentNode()
+  }
+
   private func revertToParentNode() {
-    if !currentBindingPath.isEmpty {
-      currentBindingPath.removeLast()
-      logger.debug("Reverted path to: [\(currentBindingPath.joined(separator: ", "))]")
+    if !self.currentBindingPath.isEmpty {
+      self.currentBindingPath.removeLast()
+      logger.debug("Reverted path to: [\(self.currentBindingPath.joined(separator: ", "))]")
       // Update currentBindingNode based on the new path
-      currentBindingNode = getNode(at: currentBindingPath)
+      self.currentBindingNode = self.getNode(at: self.currentBindingPath)
     } else {
       // If path is empty, we are back at the root
-      currentBindingNode = nil
+      self.currentBindingNode = nil
       logger.debug("Reverted path to root.")
     }
   }
 
   // Helper to get node at a specific path from root
   private func getNode(at path: [String]) -> BindingNode? {
-    guard let bindings = rootBindings else { return nil }
+    guard let bindings = self.rootBindings else { return nil }
     var currentNode: [String: BindingNode]? = bindings
     var resultNode: BindingNode? = nil  // Conceptually represents the root if path is empty
 
@@ -580,7 +592,7 @@ class KeyboardMonitor: ObservableObject {
   // Public function to be called by ActionExecutor or other components
   public func resetSequenceState() {  // Make explicitly public
     logger.debug("Public resetSequenceState called.")
-    resetSequenceStateInternal()
+    self.resetSequenceStateInternal()
   }
 
   // MARK: - Configuration Update

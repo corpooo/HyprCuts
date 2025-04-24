@@ -65,7 +65,8 @@ struct AppConfig: Decodable {
 // The old Binding struct is removed (Tasks 10, 14)
 // struct Binding: Decodable { ... }
 
-enum Action: Decodable {
+// FIX: Conform to CustomStringConvertible
+enum Action: Decodable, CustomStringConvertible {
   case openApp(target: String)
   case shellCommand(command: String)
   case keys(keys: [String])
@@ -132,7 +133,7 @@ enum Action: Decodable {
     // Removed 'default' case to ensure all action types must be explicitly handled or throw error below
     default:
       // Improved error message for clarity
-      let expectedTypes = [
+      _ = [
         "open_app", "shell_command", "keys", "reset",
         "harpoon:set", "harpoon:rm", "harpoon:go", "harpoon:reset",
       ].map { item in "'\\(item)'" }.joined(separator: ", ")
@@ -140,6 +141,30 @@ enum Action: Decodable {
         "Invalid action type '\\(type)' found in config. Expected one of: \\(expectedTypes)."
       throw DecodingError.dataCorruptedError(
         forKey: .type, in: container, debugDescription: debugDesc)
+    }
+  }
+
+  // FIX: Implement CustomStringConvertible
+  var description: String {
+    switch self {
+    case .openApp(let target):
+      return "openApp(target: \(target))"
+    case .shellCommand(_):
+      // Avoid logging potentially sensitive command details directly?
+      // Or truncate long commands?
+      return "shellCommand(command: ...)"  // Truncated for safety/brevity
+    case .keys(let keys):
+      return "keys(keys: [\(keys.joined(separator: ", "))])"
+    case .reset:
+      return "reset"
+    case .harpoonSet:
+      return "harpoonSet"
+    case .harpoonRm:
+      return "harpoonRm"
+    case .harpoonGo:
+      return "harpoonGo"
+    case .harpoonReset:
+      return "harpoonReset"
     }
   }
 }

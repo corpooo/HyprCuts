@@ -10,7 +10,7 @@ import Foundation
 import os  // Import os for logging
 
 // Make enum internal (default access level) so it's accessible from ConfigManager
-enum HyprCutAction {
+enum HyprCutAction: CustomStringConvertible {
   case openApp(target: String)
   case runShellCommand(command: String)
   case typeKeys(keys: [String])
@@ -22,6 +22,33 @@ enum HyprCutAction {
   case harpoonRm(slotKey: String)
   case harpoonGo(slotKey: String)
   case harpoonReset
+
+  // FIX: Implement CustomStringConvertible
+  var description: String {
+    switch self {
+    case .openApp(let target):
+      return "openApp(target: \(target))"
+    case .runShellCommand(let command):
+      // Truncate command for safety/brevity in logs
+      let truncatedCommand = command.count > 50 ? String(command.prefix(47)) + "..." : command
+      return "runShellCommand(command: \(truncatedCommand))"
+    case .typeKeys(let keys):
+      return "typeKeys(keys: [\(keys.joined(separator: ", "))])"
+    case .debugPrintKeyEvent(let event):
+      // Provide a minimal description for the debug event
+      return "debugPrintKeyEvent(keyCode: \(event.keyCode))"
+    case .resetSequenceState:
+      return "resetSequenceState"
+    case .harpoonSet(let slotKey):
+      return "harpoonSet(slotKey: \(slotKey))"
+    case .harpoonRm(let slotKey):
+      return "harpoonRm(slotKey: \(slotKey))"
+    case .harpoonGo(let slotKey):
+      return "harpoonGo(slotKey: \(slotKey))"
+    case .harpoonReset:
+      return "harpoonReset"
+    }
+  }
 }
 
 class ActionExecutor {

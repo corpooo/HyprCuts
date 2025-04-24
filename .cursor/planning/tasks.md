@@ -91,9 +91,9 @@ This list tracks the implementation tasks derived from the v2 Acceptance Criteri
   - [x] **38d** Handle errors during app launch/activation.
 - [x] **39** Implement `harpoon:reset` action execution logic in `ActionExecutor`.
   - [x] **39a** Call `HarpoonManager` to clear all pairings.
-- [ ] **40** Integrate Harpoon actions with the notification system (`SequenceNotificationController`?):
-  - [ ] **40a** Display confirmation/feedback notifications for `set`, `rm`, `go` (no pairing), `reset`.
-  - [ ] **40b** Display error notifications (bundle ID error, launch/activate error, I/O error).
+- [x] **40** Integrate Harpoon actions with the notification system (`SequenceNotificationController`?):
+  - [x] **40a** Display confirmation/feedback notifications for `set`, `rm`, `go` (no pairing), `reset`.
+  - [x] **40b** Display error notifications (bundle ID error, launch/activate error, I/O error).
 - [x] **41** Implement Menu Bar integration in `AppDelegate`:
   - [x] **41a** Add a dynamic "Harpoon Pairings" section to the menu.
   - [x] **41b** Fetch pairings from `HarpoonManager`.
